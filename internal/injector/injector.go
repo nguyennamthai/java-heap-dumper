@@ -134,7 +134,7 @@ func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, contai
 }
 
 func (i *Injector) exec(ctx context.Context, pod *corev1.Pod, containerName string, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	req := i.client.CoreV1().RESTClient().Post().
+	req := i.Client.CoreV1().RESTClient().Post().
 		Namespace(pod.Namespace).
 		Resource("pods").
 		Name(pod.Name).

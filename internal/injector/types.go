@@ -6,13 +6,13 @@ import (
 )
 
 type Injector struct {
-	client     kubernetes.Interface
+	Client     kubernetes.Interface
 	restConfig *rest.Config
 }
 
 func NewInjector(client kubernetes.Interface, config *rest.Config) *Injector {
 	return &Injector{
-		client:     client,
+		Client:     client,
 		restConfig: config,
 	}
 }
