@@ -7,13 +7,12 @@ RUN go mod download
 
 ENV CGO_ENABLED=0
 ENV GOOS=linux
-RUN mkdir -p /dist
 
 COPY . .
 
-RUN go build -ldflags="-w -s" -o /dist/monitor cmd/monitor/main.go
-RUN go build -ldflags="-w -s" -o /dist/publisher cmd/publisher/main.go
-RUN go build -ldflags="-w -s" -o /dist/controller cmd/controller/main.go
+RUN go build -ldflags="-w -s" -o /tmp/monitor cmd/monitor/main.go
+RUN go build -ldflags="-w -s" -o /tmp/publisher cmd/publisher/main.go
+RUN go build -ldflags="-w -s" -o /tmp/controller cmd/controller/main.go
 
 FROM alpine:3.21
 
@@ -22,8 +21,8 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /
 
-COPY --from=builder /dist/monitor   /dist/monitor
-COPY --from=builder /dist/publisher /dist/publisher
-COPY --from=builder /dist/controller /bin/controller
+COPY --from=builder /tmp/monitor   /dist/monitor
+COPY --from=builder /tmp/publisher /dist/publisher
+COPY --from=builder /tmp/controller /bin/controller
 
 ENTRYPOINT ["/bin/controller"]
