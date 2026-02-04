@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -49,6 +50,23 @@ func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, containerName st
 	}
 
 	fmt.Printf("Successfully injected %s!\n", processName)
+	return nil
+}
+
+func (i *Injector) Remove(ctx context.Context, pod *corev1.Pod, containerName string) error {
+	slog.Info("Cleaning up binary files in container ...", "namespace", pod.Namespace, "pod", pod.Name, "container", containerName)
+
+	killCmd := []string{"pkill", "-f", processName}
+	if err := i.exec(ctx, pod, containerName, killCmd, nil, nil, nil); err != nil {
+		slog.Warn("Failed to kill process (might not be running)", "processName", processName, "error", err)
+	}
+
+	rmCmd := []string{"rm", "-f", remoteBinaryPath, remoteLogPath}
+	if err := i.exec(ctx, pod, containerName, rmCmd, nil, nil, nil); err != nil {
+		return fmt.Errorf("failed to remove files: %w", err)
+	}
+
+	slog.Info("Successfully remove binary files")
 	return nil
 }
 
