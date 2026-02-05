@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
@@ -25,12 +26,13 @@ const (
 	finalizerName       = "heapdumper.hivecpq/cleanup"
 )
 
-func New(client kubernetes.Interface, informer cache.SharedIndexInformer, inj *injector.Injector) *Controller {
+func New(kubeClient kubernetes.Interface, crdClient rest.Interface, informer cache.SharedIndexInformer, inj *injector.Injector) *Controller {
 	c := &Controller{
-		client:   client,
-		informer: informer,
-		injector: inj,
-		queue:    workqueue.NewTypedRateLimitingQueue[string](workqueue.DefaultTypedControllerRateLimiter[string]()),
+		kubeClient: kubeClient,
+		crdClient:  crdClient,
+		informer:   informer,
+		injector:   inj,
+		queue:      workqueue.NewTypedRateLimitingQueue[string](workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
 
 	_, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -110,7 +112,6 @@ func (c *Controller) reconcile(key string) error {
 		return fmt.Errorf("expected HeapDumper, got %T", item)
 	}
 
-	// Check if being deleted
 	if !dumper.ObjectMeta.DeletionTimestamp.IsZero() {
 		return c.handleDeletion(dumper)
 	}
@@ -120,12 +121,26 @@ func (c *Controller) reconcile(key string) error {
 
 func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper) error {
 	if !containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
-		dumper.ObjectMeta.Finalizers = append(dumper.ObjectMeta.Finalizers, finalizerName)
+		dumperCopy := dumper.DeepCopy()
+		dumperCopy.ObjectMeta.Finalizers = append(dumperCopy.ObjectMeta.Finalizers, finalizerName)
 		slog.Info("Adding finalizer", "name", dumper.Name)
-		// TODO: Update CR
+		if err := c.updateDumper(dumperCopy); err != nil {
+			return fmt.Errorf("failed to add finalizer: %w", err)
+		}
 	}
 
 	return c.injectIntoPods(dumper)
+}
+
+func (c *Controller) updateDumper(dumper *dumperV1.HeapDumper) error {
+	result := &dumperV1.HeapDumper{}
+	return c.crdClient.Put().
+		Namespace(dumper.Namespace).
+		Resource("heapdumpers").
+		Name(dumper.Name).
+		Body(dumper).
+		Do(context.Background()).
+		Into(result)
 }
 
 func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper) error {
@@ -160,8 +175,11 @@ func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper) error {
 		}
 
 		slog.Info("Removing finalizer", "name", dumper.Name)
-		dumper.ObjectMeta.Finalizers = removeString(dumper.ObjectMeta.Finalizers, finalizerName)
-		// TODO: Client.Update()
+		dumperCopy := dumper.DeepCopy()
+		dumperCopy.ObjectMeta.Finalizers = removeString(dumperCopy.ObjectMeta.Finalizers, finalizerName)
+		if err := c.updateDumper(dumperCopy); err != nil {
+			return fmt.Errorf("failed to remove finalizer: %w", err)
+		}
 	}
 	return nil
 }
@@ -197,7 +215,7 @@ func (c *Controller) findPods(dumper *dumperV1.HeapDumper) ([]coreV1.Pod, error)
 		LabelSelector: selector.String(),
 	}
 
-	podList, err := c.client.CoreV1().Pods(dumper.Namespace).List(context.Background(), listOptions)
+	podList, err := c.kubeClient.CoreV1().Pods(dumper.Namespace).List(context.Background(), listOptions)
 	if err != nil {
 		return nil, err
 	}
