@@ -9,31 +9,47 @@ import (
 	"syscall"
 	"time"
 
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+
+	dumperV1 "java-heap-dumper/pkg/apis/javaheapdumper/v1"
 )
 
 func main() {
-	config, err := rest.InClusterConfig()
+	err := dumperV1.AddToScheme(scheme.Scheme)
+	if err != nil {
+		klog.Fatalf("Error adding custom resource scheme: %v", err.Error())
+	}
+
+	kubeConfig, err := rest.InClusterConfig()
 	if err != nil {
 		klog.Fatalf("Failed to load in-cluster config. Ensure this is running inside a Pod with a ServiceAccount: %s", err.Error())
 	}
 
-	client, err := kubernetes.NewForConfig(config)
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
 	if err != nil {
 		klog.Fatalf("Error building kubernetes client: %v", err.Error())
 	}
 
-	informerFactory := informers.NewSharedInformerFactory(client, time.Minute*10)
-	inj := &injector.Injector{
-		Client: client,
+	crdConfig := *kubeConfig
+	crdConfig.ContentConfig.GroupVersion = &dumperV1.SchemeGroupVersion
+	crdConfig.APIPath = "/apis"
+	crdConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+
+	crdClient, err := rest.RESTClientFor(&crdConfig)
+	if err != nil {
+		klog.Fatalf("Error building CRD client: %v", err.Error())
 	}
 
-	heapDumpCtr := controller.New(client, informerFactory.Core().V1().Pods().Informer(), inj)
+	informer := dumperV1.NewHeapDumperInformer(crdClient, time.Minute*10)
+	inj := &injector.Injector{Client: kubeClient}
+
+	heapDumpCtr := controller.New(kubeClient, crdClient, informer, inj)
 	stopCh := setUpSignalHandler()
-	informerFactory.Start(stopCh)
+
+	go informer.Run(stopCh)
 	heapDumpCtr.Run(2, stopCh)
 }
 
