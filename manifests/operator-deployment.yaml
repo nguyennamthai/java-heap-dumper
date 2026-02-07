@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gc-operator
+  namespace: default
+  labels:
+    app: gc-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gc-operator
+  template:
+    metadata:
+      labels:
+        app: gc-operator
+    spec:
+      serviceAccountName: gc-operator
+      containers:
+        - name: operator
+          image: nguyennamthai/java-heap-dump-operator:1
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 100m
+            requests:
+              memory: 64Mi
+              cpu: 50m
