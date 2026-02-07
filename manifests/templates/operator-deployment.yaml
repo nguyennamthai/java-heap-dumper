@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: gc-operator
-  namespace: default
+  namespace: {{ .Release.Namespace }}
   labels:
     app: gc-operator
 spec:
@@ -15,15 +15,10 @@ spec:
       labels:
         app: gc-operator
     spec:
-      serviceAccountName: gc-operator
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: operator
-          image: nguyennamthai/java-heap-dump-operator:1
-          imagePullPolicy: Always
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           resources:
-            limits:
-              memory: 128Mi
-              cpu: 100m
-            requests:
-              memory: 64Mi
-              cpu: 50m
+            {{- toYaml .Values.resources | nindent 12 }}

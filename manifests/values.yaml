@@ -1,0 +1,16 @@
+image:
+  repository: nguyennamthai/java-heap-dump-operator
+  pullPolicy: Always
+  tag: "1"
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+serviceAccount:
+  create: true
+  name: "gc-operator"

@@ -2,7 +2,7 @@ apiVersion: hivecpq/v1
 kind: HeapDumper
 metadata:
   name: api-dumper
-  namespace: default
+  namespace: {{ .Release.Namespace }}
 spec:
   selector:
     app: api
