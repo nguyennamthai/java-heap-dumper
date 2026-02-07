@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
-	dumperV1 "java-heap-dumper/pkg/apis/javaheapdumper/v1"
+	dumperV1 "java-heap-dumper/pkg/apis/heapdumper/v1"
 )
 
 func main() {
@@ -43,7 +43,7 @@ func main() {
 		klog.Fatalf("Error building CRD client: %v", err.Error())
 	}
 
-	informer := dumperV1.NewHeapDumperInformer(crdClient, time.Minute*10)
+	informer := dumperV1.NewInformer(crdClient, time.Minute*10)
 	inj := &injector.Injector{Client: kubeClient}
 
 	heapDumpCtr := controller.New(kubeClient, crdClient, informer, inj)

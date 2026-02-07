@@ -9,7 +9,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-func NewHeapDumperInformer(crdClient rest.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+func NewInformer(crdClient rest.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
 	lw := cache.NewListWatchFromClient(
 		crdClient,
 		"heapdumpers",

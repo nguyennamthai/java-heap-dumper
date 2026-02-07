@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	"java-heap-dumper/internal/injector"
-	dumperV1 "java-heap-dumper/pkg/apis/javaheapdumper/v1"
+	dumperV1 "java-heap-dumper/pkg/apis/heapdumper/v1"
 )
 
 const (
