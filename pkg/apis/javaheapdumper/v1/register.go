@@ -12,7 +12,7 @@ var (
 )
 
 const (
-	GroupName = "heapdumper.hivecpq"
+	GroupName = "hivecpq"
 	Version   = "v1"
 )
 
