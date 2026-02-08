@@ -175,13 +175,8 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 }
 
 func (c *Controller) handleDeletion(ctx context.Context, dumper *dumperV1.HeapDumper) error {
-	if containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
-		slog.Info("Removing finalizer", "name", dumper.Name)
-		dumperCopy := dumper.DeepCopy()
-		dumperCopy.ObjectMeta.Finalizers = removeString(dumperCopy.ObjectMeta.Finalizers, finalizerName)
-		if err := c.updateDumper(ctx, dumperCopy); err != nil {
-			return fmt.Errorf("failed to remove finalizer: %w", err)
-		}
+	if !containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
+		return nil
 	}
 
 	for _, binaryName := range binaryNames {
@@ -189,7 +184,11 @@ func (c *Controller) handleDeletion(ctx context.Context, dumper *dumperV1.HeapDu
 			return err
 		}
 	}
-	return nil
+
+	slog.Info("Removing finalizer ...", "resourceName", dumper.Name)
+	dumperCopy := dumper.DeepCopy()
+	dumperCopy.ObjectMeta.Finalizers = removeString(dumperCopy.ObjectMeta.Finalizers, finalizerName)
+	return c.updateDumper(ctx, dumperCopy)
 }
 
 func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper, binaryName string) error {
@@ -260,6 +259,7 @@ func findContainerName(pod *coreV1.Pod) (string, error) {
 		}
 	}
 
+	slog.Warn("Target container not found, falling back to first container", "podName", pod.Name, "containerName", containers[0].Name)
 	return containers[0].Name, nil
 }
 
