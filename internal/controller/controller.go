@@ -280,7 +280,7 @@ func (c *Controller) handleErr(err error, key string) {
 	}
 
 	c.queue.Forget(key)
-	runtime.HandleError(err)
+	slog.Error("Dropping item from queue after max retries", "key", key, "error", err)
 }
 
 func containsString(slice []string, s string) bool {
