@@ -6,4 +6,5 @@ metadata:
 spec:
   selector:
     app: api
+  container: api
   thresholdGb: 1.5

@@ -13,6 +13,7 @@ type HeapDumper struct {
 
 type HeapDumperSpec struct {
 	Selector    map[string]string `json:"selector"`
+	Container   string            `json:"container"`
 	ThresholdGb float64           `json:"thresholdGb"`
 }
 

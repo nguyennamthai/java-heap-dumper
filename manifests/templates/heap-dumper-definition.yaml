@@ -19,6 +19,7 @@ spec:
                   type: object
                   additionalProperties:
                     type: string
+                container: string
                 thresholdGb:
                   type: number
             status:

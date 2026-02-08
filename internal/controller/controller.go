@@ -21,9 +21,8 @@ import (
 )
 
 const (
-	targetContainerName = "api"
-	maxRetries          = 3
-	finalizerName       = "cleanup"
+	maxRetries    = 3
+	finalizerName = "cleanup"
 )
 
 var (
@@ -151,7 +150,7 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 	var errs []error
 	for _, pod := range pods {
 		p := pod
-		containerName, err := findContainerName(&p)
+		containerName, err := findContainerName(&p, dumper.Spec.Container)
 		if err != nil {
 			slog.Warn("Skipping pod", "podName", p.Name, "error", err)
 			errs = append(errs, err)
@@ -200,7 +199,7 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 	var errs []error
 	for _, pod := range pods {
 		p := pod
-		containerName, err := findContainerName(&p)
+		containerName, err := findContainerName(&p, dumper.Spec.Container)
 		if err != nil {
 			slog.Warn("Skipping pod", "podName", p.Name, "error", err)
 			errs = append(errs, err)
@@ -247,7 +246,7 @@ func (c *Controller) findPods(ctx context.Context, dumper *dumperV1.HeapDumper) 
 	return podList.Items, nil
 }
 
-func findContainerName(pod *coreV1.Pod) (string, error) {
+func findContainerName(pod *coreV1.Pod, targetContainerName string) (string, error) {
 	containers := pod.Spec.Containers
 	if len(containers) == 0 {
 		return "", fmt.Errorf("no containers found in pod %s", pod.Name)
@@ -259,7 +258,7 @@ func findContainerName(pod *coreV1.Pod) (string, error) {
 		}
 	}
 
-	slog.Warn("Target container not found, falling back to first container", "podName", pod.Name, "containerName", containers[0].Name)
+	slog.Warn("Target container not found, falling back to first container", "podName", pod.Name, "targetName", targetContainerName, "containerName", containers[0].Name)
 	return containers[0].Name, nil
 }
 
