@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"java-heap-dumper/internal/types"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -13,10 +14,12 @@ import (
 	"time"
 )
 
-const targetProcessId = 1
+const (
+	targetProcessId = 1
+	dumpDir         = "/tmp/dumps"
+)
 
 var (
-	dumpDir    = "/tmp/dumps"
 	statusFile string
 	reportFile string
 )
@@ -64,22 +67,18 @@ func main() {
 }
 
 func loadEnvironmentVariables() types.CmdEvnVars {
-	if envDir := os.Getenv("DUMP_DIR"); envDir != "" {
-		dumpDir = envDir
-	}
-
 	statusFile = fmt.Sprintf("%s/monitor_status.json", dumpDir)
 	reportFile = fmt.Sprintf("%s/dump_report.json", dumpDir)
 
 	envThresholdGb := os.Getenv("THRESHOLD_GB")
 	if envThresholdGb == "" {
-		fmt.Println("Fatal: THRESHOLD_GB environment variable is required (e.g., '1.5')")
+		_, _ = fmt.Fprintf(os.Stderr, "THRESHOLD_GB environment variable is required\n")
 		os.Exit(1)
 	}
 
 	thresholdGb, err := strconv.ParseFloat(envThresholdGb, 64)
 	if err != nil {
-		fmt.Printf("Fatal: Invalid THRESHOLD_GB %s: %v\n", envThresholdGb, err)
+		_, _ = fmt.Fprintf(os.Stderr, "THRESHOLD_GB environment variable is invalid: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -109,7 +108,7 @@ func writeStatus(state string, message string) {
 
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		fmt.Printf("Error marshalling status: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error marshalling status: %v\n", err)
 		return
 	}
 
@@ -177,6 +176,6 @@ func waitForTermination() {
 	// Block the program until the signal arrives.
 	<-sigChan
 
-	fmt.Println("Shutting down the monitor ...")
+	slog.Info("Shutting down the monitor ...")
 	os.Exit(0)
 }
