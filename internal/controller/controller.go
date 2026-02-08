@@ -96,23 +96,12 @@ func (c *Controller) processItem() bool {
 	}
 	defer c.queue.Done(key)
 
-	var errs []error
-	for _, binaryName := range binaryNames {
-		err := c.reconcile(key, binaryName)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("binary '%s': %w", binaryName, err))
-		}
-	}
-
-	if len(errs) > 0 {
-		c.handleErr(fmt.Errorf("reconciliation failed: %v", errs), key)
-	} else {
-		c.handleErr(nil, key)
-	}
+	err := c.reconcile(key)
+	c.handleErr(err, key)
 	return true
 }
 
-func (c *Controller) reconcile(key string, binaryName string) error {
+func (c *Controller) reconcile(key string) error {
 	item, exists, err := c.informer.GetIndexer().GetByKey(key)
 	if err != nil {
 		return err
@@ -126,14 +115,13 @@ func (c *Controller) reconcile(key string, binaryName string) error {
 		return fmt.Errorf("expected HeapDumper, got %T", item)
 	}
 
-	if !dumper.ObjectMeta.DeletionTimestamp.IsZero() {
-		return c.handleDeletion(dumper, binaryName)
+	if dumper.ObjectMeta.DeletionTimestamp.IsZero() {
+		return c.handleCreation(dumper)
 	}
-
-	return c.handleCreation(dumper, binaryName)
+	return c.handleDeletion(dumper)
 }
 
-func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper, binaryName string) error {
+func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper) error {
 	if !containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
 		dumperCopy := dumper.DeepCopy()
 		dumperCopy.ObjectMeta.Finalizers = append(dumperCopy.ObjectMeta.Finalizers, finalizerName)
@@ -143,21 +131,15 @@ func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper, binaryName stri
 		}
 	}
 
-	return c.injectIntoPods(dumper, binaryName)
+	for _, binaryName := range binaryNames {
+		if err := c.injectFile(dumper, binaryName); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (c *Controller) updateDumper(dumper *dumperV1.HeapDumper) error {
-	result := &dumperV1.HeapDumper{}
-	return c.crdClient.Put().
-		Namespace(dumper.Namespace).
-		Resource("heapdumpers").
-		Name(dumper.Name).
-		Body(dumper).
-		Do(context.Background()).
-		Into(result)
-}
-
-func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper, binaryName string) error {
+func (c *Controller) injectFile(dumper *dumperV1.HeapDumper, binaryName string) error {
 	pods, err := c.findPods(dumper)
 	if err != nil {
 		return err
@@ -193,12 +175,8 @@ func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper, binaryName stri
 	return nil
 }
 
-func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper, binaryName string) error {
+func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper) error {
 	if containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
-		if err := c.cleanUpPods(dumper, binaryName); err != nil {
-			return err
-		}
-
 		slog.Info("Removing finalizer", "name", dumper.Name)
 		dumperCopy := dumper.DeepCopy()
 		dumperCopy.ObjectMeta.Finalizers = removeString(dumperCopy.ObjectMeta.Finalizers, finalizerName)
@@ -206,10 +184,16 @@ func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper, binaryName stri
 			return fmt.Errorf("failed to remove finalizer: %w", err)
 		}
 	}
+
+	for _, binaryName := range binaryNames {
+		if err := c.removeFile(dumper, binaryName); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (c *Controller) cleanUpPods(dumper *dumperV1.HeapDumper, binaryName string) error {
+func (c *Controller) removeFile(dumper *dumperV1.HeapDumper, binaryName string) error {
 	pods, err := c.findPods(dumper)
 	if err != nil {
 		return err
@@ -243,6 +227,17 @@ func (c *Controller) cleanUpPods(dumper *dumperV1.HeapDumper, binaryName string)
 		return fmt.Errorf("failed to clean up pods: %v", errs)
 	}
 	return nil
+}
+
+func (c *Controller) updateDumper(dumper *dumperV1.HeapDumper) error {
+	result := &dumperV1.HeapDumper{}
+	return c.crdClient.Put().
+		Namespace(dumper.Namespace).
+		Resource("heapdumpers").
+		Name(dumper.Name).
+		Body(dumper).
+		Do(context.Background()).
+		Into(result)
 }
 
 func (c *Controller) findPods(dumper *dumperV1.HeapDumper) ([]coreV1.Pod, error) {
