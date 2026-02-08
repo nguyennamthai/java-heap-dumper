@@ -96,11 +96,19 @@ func (c *Controller) processItem() bool {
 	}
 	defer c.queue.Done(key)
 
+	var errs []error
 	for _, binaryName := range binaryNames {
 		err := c.reconcile(key, binaryName)
-		c.handleErr(err, key)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("binary '%s': %w", binaryName, err))
+		}
 	}
 
+	if len(errs) > 0 {
+		c.handleErr(fmt.Errorf("reconciliation failed: %v", errs), key)
+	} else {
+		c.handleErr(nil, key)
+	}
 	return true
 }
 
