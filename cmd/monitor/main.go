@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"java-heap-dumper/pkg/types"
+	"java-heap-dumper/internal/types"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -16,14 +16,13 @@ import (
 const targetProcessId = 1
 
 var (
-	dumpDir     = "/tmp/dumps"
-	statusFile  string
-	reportFile  string
-	thresholdKb int64
+	dumpDir    = "/tmp/dumps"
+	statusFile string
+	reportFile string
 )
 
 func main() {
-	loadEnvironmentVariables()
+	envVars := loadEnvironmentVariables()
 
 	if err := os.MkdirAll(dumpDir, 0777); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to create dump directory %s: %v\n", dumpDir, err)
@@ -52,7 +51,7 @@ func main() {
 
 		writeStatus("Running", fmt.Sprintf("Old Gen Usage: %d KB", usageKb))
 
-		if usageKb >= thresholdKb {
+		if usageKb >= envVars.ThresholdKb {
 			if err := takeHeapDump(); err != nil {
 				writeStatus("Error", fmt.Sprintf("Dump failed: %v", err))
 			} else {
@@ -64,7 +63,7 @@ func main() {
 	}
 }
 
-func loadEnvironmentVariables() {
+func loadEnvironmentVariables() types.CmdEvnVars {
 	if envDir := os.Getenv("DUMP_DIR"); envDir != "" {
 		dumpDir = envDir
 	}
@@ -84,7 +83,9 @@ func loadEnvironmentVariables() {
 		os.Exit(1)
 	}
 
-	thresholdKb = int64(thresholdGb * 1024 * 1024)
+	return types.CmdEvnVars{
+		ThresholdKb: int64(thresholdGb * 1024 * 1024),
+	}
 }
 
 func verifyJavaProcessId() error {

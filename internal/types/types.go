@@ -6,3 +6,7 @@ type MonitorStatus struct {
 	Message   string `json:"message"`
 	Timestamp int64  `json:"timestamp"`
 }
+
+type CmdEvnVars struct {
+	ThresholdKb int64
+}

@@ -45,7 +45,7 @@ func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, opts Options) er
 		return fmt.Errorf("failed to inject file %s to %s: %w", localPath, remoteBinaryPath, err)
 	}
 
-	cmd := []string{"sh", "-c", fmt.Sprintf("nohup %s > %s 2>&1 &", remoteBinaryPath, remoteLogPath)}
+	cmd := []string{"sh", "-c", fmt.Sprintf("THRESHOLD_GB=%s nohup %s > %s 2>&1 &", opts.ThresholdGb, remoteBinaryPath, remoteLogPath)}
 	var stdErr bytes.Buffer
 	if err := i.exec(ctx, pod, opts.ContainerName, cmd, nil, nil, &stdErr); err != nil {
 		return fmt.Errorf("failed to start process: %w (stderr: %s)", err, stdErr.String())

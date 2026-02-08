@@ -160,6 +160,7 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 		opts := injector.Options{
 			ContainerName: containerName,
 			ProcessName:   binaryName,
+			ThresholdGb:   dumper.Spec.ThresholdGb,
 		}
 		if err := c.injector.Inject(ctx, &p, opts); err != nil {
 			slog.Error("Failed to inject", "podName", p.Name, "error", err)
@@ -209,6 +210,7 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 		opts := injector.Options{
 			ContainerName: containerName,
 			ProcessName:   binaryName,
+			ThresholdGb:   dumper.Spec.ThresholdGb,
 		}
 		if err := c.injector.Remove(ctx, &p, opts); err != nil {
 			slog.Error("Failed to clean up pod", "podName", p.Name, "error", err)

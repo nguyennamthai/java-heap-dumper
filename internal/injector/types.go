@@ -13,4 +13,5 @@ type Injector struct {
 type Options struct {
 	ContainerName string
 	ProcessName   string
+	ThresholdGb   float64
 }
