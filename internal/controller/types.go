@@ -10,7 +10,7 @@ import (
 )
 
 type Controller struct {
-	kubeClient kubernetes.Interface
+	baseClient kubernetes.Interface
 	crdClient  rest.Interface
 	queue      workqueue.TypedRateLimitingInterface[string]
 	informer   cache.SharedIndexInformer

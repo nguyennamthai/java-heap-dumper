@@ -30,9 +30,9 @@ var (
 	binaryNames = []string{"gc-monitor", "dump-publisher"}
 )
 
-func New(kubeClient kubernetes.Interface, crdClient rest.Interface, informer cache.SharedIndexInformer, inj *injector.Injector) *Controller {
+func New(baseClient kubernetes.Interface, crdClient rest.Interface, informer cache.SharedIndexInformer, inj *injector.Injector) *Controller {
 	c := &Controller{
-		kubeClient: kubeClient,
+		baseClient: baseClient,
 		crdClient:  crdClient,
 		informer:   informer,
 		injector:   inj,
@@ -163,10 +163,12 @@ func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper, binaryName stri
 		return err
 	}
 
+	var errs []error
 	for _, pod := range pods {
 		containerName, err := findContainerName(&pod)
 		if err != nil {
 			slog.Warn("Skipping pod", "pod", pod.Name, "error", err)
+			errs = append(errs, err)
 			continue
 		}
 
@@ -180,8 +182,13 @@ func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper, binaryName stri
 
 			if err := c.injector.Inject(ctx, &pod, opts); err != nil {
 				slog.Error("Failed to inject", "pod", pod.Name, "error", err)
+				errs = append(errs, err)
 			}
 		}()
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to inject into pods: %v", errs)
 	}
 	return nil
 }
@@ -208,10 +215,12 @@ func (c *Controller) cleanUpPods(dumper *dumperV1.HeapDumper, binaryName string)
 		return err
 	}
 
+	var errs []error
 	for _, pod := range pods {
 		containerName, err := findContainerName(&pod)
 		if err != nil {
 			slog.Warn("Skipping pod", "pod", pod.Name, "error", err)
+			errs = append(errs, err)
 			continue
 		}
 
@@ -225,8 +234,13 @@ func (c *Controller) cleanUpPods(dumper *dumperV1.HeapDumper, binaryName string)
 
 			if err := c.injector.Remove(ctx, &pod, opts); err != nil {
 				slog.Error("Failed to clean up pod", "pod", pod.Name, "error", err)
+				errs = append(errs, err)
 			}
 		}()
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to clean up pods: %v", errs)
 	}
 	return nil
 }
@@ -237,7 +251,7 @@ func (c *Controller) findPods(dumper *dumperV1.HeapDumper) ([]coreV1.Pod, error)
 		LabelSelector: selector.String(),
 	}
 
-	podList, err := c.kubeClient.CoreV1().Pods(dumper.Namespace).List(context.Background(), listOptions)
+	podList, err := c.baseClient.CoreV1().Pods(dumper.Namespace).List(context.Background(), listOptions)
 	if err != nil {
 		return nil, err
 	}
