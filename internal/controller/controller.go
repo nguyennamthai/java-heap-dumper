@@ -65,7 +65,7 @@ func (c *Controller) enqueue(obj interface{}) {
 	}
 }
 
-func (c *Controller) Run(nbrOfWorkers int, stopCh <-chan struct{}) {
+func (c *Controller) Run(ctx context.Context, nbrOfWorkers int, stopCh <-chan struct{}) {
 	defer runtime.HandleCrash()
 	defer c.queue.ShutDown()
 
@@ -77,31 +77,34 @@ func (c *Controller) Run(nbrOfWorkers int, stopCh <-chan struct{}) {
 
 	slog.Info("Caches synced. Starting workers...")
 	for i := 0; i < nbrOfWorkers; i++ {
-		go wait.Until(c.runWorker, time.Second, stopCh)
+		go wait.Until(func() { c.runWorker(ctx) }, time.Second, stopCh)
 	}
 
 	<-stopCh
 	slog.Info("Stopping controller")
 }
 
-func (c *Controller) runWorker() {
-	for c.processItem() {
+func (c *Controller) runWorker(ctx context.Context) {
+	for c.processItem(ctx) {
 	}
 }
 
-func (c *Controller) processItem() bool {
+func (c *Controller) processItem(ctx context.Context) bool {
 	key, quit := c.queue.Get()
 	if quit {
 		return false
 	}
 	defer c.queue.Done(key)
 
-	err := c.reconcile(key)
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer cancel()
+
+	err := c.reconcile(ctx, key)
 	c.handleErr(err, key)
 	return true
 }
 
-func (c *Controller) reconcile(key string) error {
+func (c *Controller) reconcile(ctx context.Context, key string) error {
 	item, exists, err := c.informer.GetIndexer().GetByKey(key)
 	if err != nil {
 		return err
@@ -116,31 +119,31 @@ func (c *Controller) reconcile(key string) error {
 	}
 
 	if dumper.ObjectMeta.DeletionTimestamp.IsZero() {
-		return c.handleCreation(dumper)
+		return c.handleCreation(ctx, dumper)
 	}
-	return c.handleDeletion(dumper)
+	return c.handleDeletion(ctx, dumper)
 }
 
-func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper) error {
+func (c *Controller) handleCreation(ctx context.Context, dumper *dumperV1.HeapDumper) error {
 	if !containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
 		dumperCopy := dumper.DeepCopy()
 		dumperCopy.ObjectMeta.Finalizers = append(dumperCopy.ObjectMeta.Finalizers, finalizerName)
 		slog.Info("Adding finalizer", "name", dumper.Name)
-		if err := c.updateDumper(dumperCopy); err != nil {
+		if err := c.updateDumper(ctx, dumperCopy); err != nil {
 			return fmt.Errorf("failed to add finalizer: %w", err)
 		}
 	}
 
 	for _, binaryName := range binaryNames {
-		if err := c.injectFile(dumper, binaryName); err != nil {
+		if err := c.injectFile(ctx, dumper, binaryName); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Controller) injectFile(dumper *dumperV1.HeapDumper, binaryName string) error {
-	pods, err := c.findPods(dumper)
+func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper, binaryName string) error {
+	pods, err := c.findPods(ctx, dumper)
 	if err != nil {
 		return err
 	}
@@ -159,9 +162,6 @@ func (c *Controller) injectFile(dumper *dumperV1.HeapDumper, binaryName string) 
 			ProcessName:   binaryName,
 		}
 		func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-			defer cancel()
-
 			if err := c.injector.Inject(ctx, &pod, opts); err != nil {
 				slog.Error("Failed to inject", "pod", pod.Name, "error", err)
 				errs = append(errs, err)
@@ -175,26 +175,26 @@ func (c *Controller) injectFile(dumper *dumperV1.HeapDumper, binaryName string) 
 	return nil
 }
 
-func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper) error {
+func (c *Controller) handleDeletion(ctx context.Context, dumper *dumperV1.HeapDumper) error {
 	if containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
 		slog.Info("Removing finalizer", "name", dumper.Name)
 		dumperCopy := dumper.DeepCopy()
 		dumperCopy.ObjectMeta.Finalizers = removeString(dumperCopy.ObjectMeta.Finalizers, finalizerName)
-		if err := c.updateDumper(dumperCopy); err != nil {
+		if err := c.updateDumper(ctx, dumperCopy); err != nil {
 			return fmt.Errorf("failed to remove finalizer: %w", err)
 		}
 	}
 
 	for _, binaryName := range binaryNames {
-		if err := c.removeFile(dumper, binaryName); err != nil {
+		if err := c.removeFile(ctx, dumper, binaryName); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Controller) removeFile(dumper *dumperV1.HeapDumper, binaryName string) error {
-	pods, err := c.findPods(dumper)
+func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper, binaryName string) error {
+	pods, err := c.findPods(ctx, dumper)
 	if err != nil {
 		return err
 	}
@@ -213,9 +213,6 @@ func (c *Controller) removeFile(dumper *dumperV1.HeapDumper, binaryName string) 
 			ProcessName:   binaryName,
 		}
 		func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-			defer cancel()
-
 			if err := c.injector.Remove(ctx, &pod, opts); err != nil {
 				slog.Error("Failed to clean up pod", "pod", pod.Name, "error", err)
 				errs = append(errs, err)
@@ -229,24 +226,24 @@ func (c *Controller) removeFile(dumper *dumperV1.HeapDumper, binaryName string) 
 	return nil
 }
 
-func (c *Controller) updateDumper(dumper *dumperV1.HeapDumper) error {
+func (c *Controller) updateDumper(ctx context.Context, dumper *dumperV1.HeapDumper) error {
 	result := &dumperV1.HeapDumper{}
 	return c.crdClient.Put().
 		Namespace(dumper.Namespace).
 		Resource("heapdumpers").
 		Name(dumper.Name).
 		Body(dumper).
-		Do(context.Background()).
+		Do(ctx).
 		Into(result)
 }
 
-func (c *Controller) findPods(dumper *dumperV1.HeapDumper) ([]coreV1.Pod, error) {
+func (c *Controller) findPods(ctx context.Context, dumper *dumperV1.HeapDumper) ([]coreV1.Pod, error) {
 	selector := labels.SelectorFromSet(dumper.Spec.Selector)
 	listOptions := metaV1.ListOptions{
 		LabelSelector: selector.String(),
 	}
 
-	podList, err := c.baseClient.CoreV1().Pods(dumper.Namespace).List(context.Background(), listOptions)
+	podList, err := c.baseClient.CoreV1().Pods(dumper.Namespace).List(ctx, listOptions)
 	if err != nil {
 		return nil, err
 	}

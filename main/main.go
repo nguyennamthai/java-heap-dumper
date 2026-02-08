@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"java-heap-dumper/internal/controller"
 	"java-heap-dumper/internal/injector"
@@ -53,7 +54,7 @@ func main() {
 	stopCh := setUpSignalHandler()
 
 	go informer.Run(stopCh)
-	heapDumpCtr.Run(2, stopCh)
+	heapDumpCtr.Run(context.Background(), 2, stopCh)
 }
 
 func setUpSignalHandler() <-chan struct{} {
