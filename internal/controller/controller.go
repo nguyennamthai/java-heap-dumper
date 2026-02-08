@@ -264,6 +264,7 @@ func findContainerName(pod *coreV1.Pod) (string, error) {
 		}
 	}
 
+	slog.Warn("Target container not found, falling back to first container", "podName", pod.Name, "containerName", containers[0].Name)
 	return containers[0].Name, nil
 }
 
