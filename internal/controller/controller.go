@@ -64,12 +64,12 @@ func (c *Controller) enqueue(obj interface{}) {
 	}
 }
 
-func (c *Controller) Run(ctx context.Context, nbrOfWorkers int, stopCh <-chan struct{}) {
+func (c *Controller) Run(ctx context.Context, ctrName string, nbrOfWorkers int, stopCh <-chan struct{}) {
 	defer runtime.HandleCrash()
 	defer c.queue.ShutDown()
 
 	slog.Info("Starting controller...")
-	if !cache.WaitForNamedCacheSync("java-heap-dumper", stopCh, c.informer.HasSynced) {
+	if !cache.WaitForNamedCacheSync(ctrName, stopCh, c.informer.HasSynced) {
 		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}

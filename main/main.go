@@ -54,7 +54,7 @@ func main() {
 	stopCh := setUpSignalHandler()
 
 	go informer.Run(stopCh)
-	heapDumpCtr.Run(context.Background(), 2, stopCh)
+	heapDumpCtr.Run(context.Background(), os.Getenv("CONTROLLER_NAME"), 2, stopCh)
 }
 
 func setUpSignalHandler() <-chan struct{} {

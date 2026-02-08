@@ -20,5 +20,10 @@ spec:
         - name: operator
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CONTROLLER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
