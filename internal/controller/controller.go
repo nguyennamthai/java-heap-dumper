@@ -23,7 +23,11 @@ import (
 const (
 	targetContainerName = "api"
 	maxRetries          = 3
-	finalizerName       = "heapdumper.hivecpq/cleanup"
+	finalizerName       = "cleanup"
+)
+
+var (
+	binaryNames = []string{"gc-monitor", "dump-publisher"}
 )
 
 func New(kubeClient kubernetes.Interface, crdClient rest.Interface, informer cache.SharedIndexInformer, inj *injector.Injector) *Controller {
@@ -72,7 +76,6 @@ func (c *Controller) Run(nbrOfWorkers int, stopCh <-chan struct{}) {
 	}
 
 	slog.Info("Caches synced. Starting workers...")
-
 	for i := 0; i < nbrOfWorkers; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
@@ -93,12 +96,15 @@ func (c *Controller) processItem() bool {
 	}
 	defer c.queue.Done(key)
 
-	err := c.reconcile(key)
-	c.handleErr(err, key)
+	for _, binaryName := range binaryNames {
+		err := c.reconcile(key, binaryName)
+		c.handleErr(err, key)
+	}
+
 	return true
 }
 
-func (c *Controller) reconcile(key string) error {
+func (c *Controller) reconcile(key string, binaryName string) error {
 	item, exists, err := c.informer.GetIndexer().GetByKey(key)
 	if err != nil {
 		return err
@@ -113,13 +119,13 @@ func (c *Controller) reconcile(key string) error {
 	}
 
 	if !dumper.ObjectMeta.DeletionTimestamp.IsZero() {
-		return c.handleDeletion(dumper)
+		return c.handleDeletion(dumper, binaryName)
 	}
 
-	return c.handleCreation(dumper)
+	return c.handleCreation(dumper, binaryName)
 }
 
-func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper) error {
+func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper, binaryName string) error {
 	if !containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
 		dumperCopy := dumper.DeepCopy()
 		dumperCopy.ObjectMeta.Finalizers = append(dumperCopy.ObjectMeta.Finalizers, finalizerName)
@@ -129,7 +135,7 @@ func (c *Controller) handleCreation(dumper *dumperV1.HeapDumper) error {
 		}
 	}
 
-	return c.injectIntoPods(dumper)
+	return c.injectIntoPods(dumper, binaryName)
 }
 
 func (c *Controller) updateDumper(dumper *dumperV1.HeapDumper) error {
@@ -143,7 +149,7 @@ func (c *Controller) updateDumper(dumper *dumperV1.HeapDumper) error {
 		Into(result)
 }
 
-func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper) error {
+func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper, binaryName string) error {
 	pods, err := c.findPods(dumper)
 	if err != nil {
 		return err
@@ -156,11 +162,15 @@ func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper) error {
 			continue
 		}
 
+		opts := injector.Options{
+			ContainerName: containerName,
+			ProcessName:   binaryName,
+		}
 		func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 			defer cancel()
 
-			if err := c.injector.Inject(ctx, &pod, containerName); err != nil {
+			if err := c.injector.Inject(ctx, &pod, opts); err != nil {
 				slog.Error("Failed to inject", "pod", pod.Name, "error", err)
 			}
 		}()
@@ -168,9 +178,9 @@ func (c *Controller) injectIntoPods(dumper *dumperV1.HeapDumper) error {
 	return nil
 }
 
-func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper) error {
+func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper, binaryName string) error {
 	if containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
-		if err := c.cleanUpPods(dumper); err != nil {
+		if err := c.cleanUpPods(dumper, binaryName); err != nil {
 			return err
 		}
 
@@ -184,7 +194,7 @@ func (c *Controller) handleDeletion(dumper *dumperV1.HeapDumper) error {
 	return nil
 }
 
-func (c *Controller) cleanUpPods(dumper *dumperV1.HeapDumper) error {
+func (c *Controller) cleanUpPods(dumper *dumperV1.HeapDumper, binaryName string) error {
 	pods, err := c.findPods(dumper)
 	if err != nil {
 		return err
@@ -197,11 +207,15 @@ func (c *Controller) cleanUpPods(dumper *dumperV1.HeapDumper) error {
 			continue
 		}
 
+		opts := injector.Options{
+			ContainerName: containerName,
+			ProcessName:   binaryName,
+		}
 		func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 			defer cancel()
 
-			if err := c.injector.Remove(ctx, &pod, containerName); err != nil {
+			if err := c.injector.Remove(ctx, &pod, opts); err != nil {
 				slog.Error("Failed to clean up pod", "pod", pod.Name, "error", err)
 			}
 		}()

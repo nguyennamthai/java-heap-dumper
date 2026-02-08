@@ -18,118 +18,41 @@ import (
 )
 
 const (
-	processName      = "java-monitor"
-	localPath        = "/payload/java-monitor"
-	remoteDir        = "/app/"
-	remoteBinaryPath = remoteDir + "java-monitor"
-	remoteLogPath    = remoteDir + "java-monitor.log"
+	localDir  = "/dist/"
+	remoteDir = "/tmp/"
 )
 
-func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, containerName string) error {
-	running, err := i.isProcessRunning(ctx, pod, containerName, processName)
+func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, opts Options) error {
+	running, err := i.isProcessRunning(ctx, pod, opts.ContainerName, opts.ProcessName)
 	if err != nil {
-		return fmt.Errorf("failed to check process status: %w", err)
+		return fmt.Errorf("failed to check status of the process %s: %w", opts.ProcessName, err)
 	}
+
 	if running {
-		fmt.Println("Process is already running, skipping injection")
+		slog.Info("Process is already running, skipping injection", "processName", opts.ProcessName)
 		return nil
 	}
 
-	fmt.Printf("Injecting %s into %s/%s container...\n", processName, pod.Namespace, pod.Name)
-	if err := i.exec(ctx, pod, containerName, []string{"mkdir", "-p", remoteDir}, nil, nil, nil); err != nil {
+	slog.Info("Injecting binary into container", "processName", opts.ProcessName, "namespace", pod.Namespace, "podName", pod.Name, "containerName", opts.ContainerName)
+	if err := i.exec(ctx, pod, opts.ContainerName, []string{"mkdir", "-p", remoteDir}, nil, nil, nil); err != nil {
 		return fmt.Errorf("failed to create remote directory: %w", err)
 	}
-	if err := i.copyFile(ctx, pod, containerName, localPath, remoteBinaryPath); err != nil {
-		return fmt.Errorf("failed to copy file %s: %w", localPath, err)
+
+	var localPath = localDir + opts.ProcessName
+	var remoteBinaryPath = remoteDir + opts.ProcessName
+	var remoteLogPath = remoteDir + opts.ProcessName + ".log"
+	if err := i.copyFile(ctx, pod, opts.ContainerName, localPath, remoteBinaryPath); err != nil {
+		return fmt.Errorf("failed to inject file %s to %s: %w", localPath, remoteBinaryPath, err)
 	}
 
 	cmd := []string{"sh", "-c", fmt.Sprintf("nohup %s > %s 2>&1 &", remoteBinaryPath, remoteLogPath)}
 	var stdErr bytes.Buffer
-	if err := i.exec(ctx, pod, containerName, cmd, nil, nil, &stdErr); err != nil {
+	if err := i.exec(ctx, pod, opts.ContainerName, cmd, nil, nil, &stdErr); err != nil {
 		return fmt.Errorf("failed to start process: %w (stderr: %s)", err, stdErr.String())
 	}
 
-	fmt.Printf("Successfully injected %s!\n", processName)
+	slog.Info("Successfully injected file!", "processName", opts.ProcessName)
 	return nil
-}
-
-func (i *Injector) Remove(ctx context.Context, pod *corev1.Pod, containerName string) error {
-	slog.Info("Cleaning up binary files in container ...", "namespace", pod.Namespace, "pod", pod.Name, "container", containerName)
-
-	killCmd := []string{"pkill", "-f", processName}
-	if err := i.exec(ctx, pod, containerName, killCmd, nil, nil, nil); err != nil {
-		slog.Warn("Failed to kill process (might not be running)", "processName", processName, "error", err)
-	}
-
-	rmCmd := []string{"rm", "-f", remoteBinaryPath, remoteLogPath}
-	if err := i.exec(ctx, pod, containerName, rmCmd, nil, nil, nil); err != nil {
-		return fmt.Errorf("failed to remove files: %w", err)
-	}
-
-	slog.Info("Successfully remove binary files")
-	return nil
-}
-
-func (i *Injector) copyFile(ctx context.Context, pod *corev1.Pod, containerName string, srcPath, dstPath string) (err error) {
-	file, openErr := os.Open(srcPath)
-	if openErr != nil {
-		return fmt.Errorf("failed to open local file %s: %w", srcPath, openErr)
-	}
-
-	defer func() {
-		if closeErr := file.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close local file %s: %w", srcPath, closeErr)
-		}
-	}()
-
-	stat, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to read metadata of local file %s: %w", srcPath, err)
-	}
-
-	pr, pw := io.Pipe()
-	go func() {
-		writeToPipe(pw, file, stat, dstPath)
-	}()
-
-	destDir := filepath.Dir(dstPath)
-	cmd := []string{"tar", "-xf", "-", "-C", destDir}
-	var stdErr bytes.Buffer
-
-	err = i.exec(ctx, pod, containerName, cmd, pr, nil, &stdErr)
-	if err != nil {
-		err = fmt.Errorf("failed to copy file %s: %w (stderr: %s)", srcPath, err, stdErr.String())
-	}
-	return
-}
-
-func writeToPipe(pw *io.PipeWriter, file io.Reader, stat os.FileInfo, dstPath string) {
-	var err error
-	defer func() {
-		_ = pw.CloseWithError(err)
-	}()
-
-	tw := tar.NewWriter(pw)
-	defer func() {
-		if closeError := tw.Close(); closeError != nil && err == nil {
-			err = closeError
-		}
-	}()
-
-	header := &tar.Header{
-		Name: filepath.Base(dstPath),
-		Size: stat.Size(),
-		Mode: 0755,
-	}
-
-	if writeError := tw.WriteHeader(header); writeError != nil {
-		err = writeError
-		return
-	}
-
-	if _, copyError := io.Copy(tw, file); copyError != nil {
-		err = copyError
-	}
 }
 
 func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, containerName string, processName string) (bool, error) {
@@ -145,10 +68,85 @@ func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, contai
 				return false, nil
 			}
 		}
-		return false, fmt.Errorf("failed to check process status: %w", err)
+		return false, fmt.Errorf("failed to check status of process %s: %w", processName, err)
 	}
 
 	return stdout.Len() > 0, nil
+}
+
+func (i *Injector) Remove(ctx context.Context, pod *corev1.Pod, opts Options) error {
+	slog.Info("Cleaning up binary files in container ...", "namespace", pod.Namespace, "pod", pod.Name, "container", opts.ContainerName)
+
+	killCmd := []string{"pkill", "-f", opts.ProcessName}
+	if err := i.exec(ctx, pod, opts.ContainerName, killCmd, nil, nil, nil); err != nil {
+		slog.Warn("Failed to kill process (might not be running)", "processName", opts.ProcessName, "error", err)
+	}
+
+	rmCmd := []string{"rm", "-f", remoteDir + opts.ProcessName, remoteDir + opts.ProcessName + ".log"}
+	if err := i.exec(ctx, pod, opts.ContainerName, rmCmd, nil, nil, nil); err != nil {
+		return fmt.Errorf("failed to remove files: %w", err)
+	}
+
+	slog.Info("Successfully removed binary file", "processName", opts.ProcessName)
+	return nil
+}
+
+func (i *Injector) copyFile(ctx context.Context, pod *corev1.Pod, containerName string, localPath, remotePath string) error {
+	file, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to open local file %s: %w", localPath, err)
+	}
+
+	defer func() {
+		_ = file.Close()
+	}()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to read metadata of local file %s: %w", localPath, err)
+	}
+
+	pr, pw := io.Pipe()
+	go func() {
+		err := writeToPipe(pw, file, stat, remotePath)
+		slog.Error("Failed to write file to pipe", "error", err)
+	}()
+
+	destDir := filepath.Dir(remotePath)
+	cmd := []string{"tar", "-xf", "-", "-C", destDir}
+	var stdErr bytes.Buffer
+
+	err = i.exec(ctx, pod, containerName, cmd, pr, nil, &stdErr)
+	if err != nil {
+		return fmt.Errorf("failed to copy file %s: %w (stderr: %s)", localPath, err, stdErr.String())
+	}
+	return nil
+}
+
+func writeToPipe(pw *io.PipeWriter, file io.Reader, stat os.FileInfo, dstPath string) error {
+	defer func() {
+		_ = pw.Close()
+	}()
+
+	tw := tar.NewWriter(pw)
+	defer func() {
+		_ = tw.Close()
+	}()
+
+	header := &tar.Header{
+		Name: filepath.Base(dstPath),
+		Size: stat.Size(),
+		Mode: 0755,
+	}
+
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(tw, file); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (i *Injector) exec(ctx context.Context, pod *corev1.Pod, containerName string, cmd []string, stdin io.Reader, stdout, stderr io.Writer) error {

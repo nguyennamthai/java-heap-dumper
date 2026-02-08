@@ -9,3 +9,8 @@ type Injector struct {
 	Client     kubernetes.Interface
 	RestConfig *rest.Config
 }
+
+type Options struct {
+	ContainerName string
+	ProcessName   string
+}
