@@ -153,7 +153,7 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 		p := pod
 		containerName, err := findContainerName(&p)
 		if err != nil {
-			slog.Warn("Skipping pod", "pod", p.Name, "error", err)
+			slog.Warn("Skipping pod", "podName", p.Name, "error", err)
 			errs = append(errs, err)
 			continue
 		}
@@ -162,12 +162,10 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 			ContainerName: containerName,
 			ProcessName:   binaryName,
 		}
-		func() {
-			if err := c.injector.Inject(ctx, &p, opts); err != nil {
-				slog.Error("Failed to inject", "pod", p.Name, "error", err)
-				errs = append(errs, err)
-			}
-		}()
+		if err := c.injector.Inject(ctx, &p, opts); err != nil {
+			slog.Error("Failed to inject", "podName", p.Name, "error", err)
+			errs = append(errs, err)
+		}
 	}
 
 	if len(errs) > 0 {
@@ -205,7 +203,7 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 		p := pod
 		containerName, err := findContainerName(&p)
 		if err != nil {
-			slog.Warn("Skipping pod", "pod", p.Name, "error", err)
+			slog.Warn("Skipping pod", "podName", p.Name, "error", err)
 			errs = append(errs, err)
 			continue
 		}
@@ -214,12 +212,10 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 			ContainerName: containerName,
 			ProcessName:   binaryName,
 		}
-		func() {
-			if err := c.injector.Remove(ctx, &p, opts); err != nil {
-				slog.Error("Failed to clean up pod", "pod", p.Name, "error", err)
-				errs = append(errs, err)
-			}
-		}()
+		if err := c.injector.Remove(ctx, &p, opts); err != nil {
+			slog.Error("Failed to clean up pod", "podName", p.Name, "error", err)
+			errs = append(errs, err)
+		}
 	}
 
 	if len(errs) > 0 {
@@ -264,7 +260,6 @@ func findContainerName(pod *coreV1.Pod) (string, error) {
 		}
 	}
 
-	slog.Warn("Target container not found, falling back to first container", "podName", pod.Name, "containerName", containers[0].Name)
 	return containers[0].Name, nil
 }
 
@@ -280,7 +275,7 @@ func (c *Controller) handleErr(err error, key string) {
 	}
 
 	c.queue.Forget(key)
-	slog.Error("Dropping item from queue after max retries", "key", key, "error", err)
+	runtime.HandleError(err)
 }
 
 func containsString(slice []string, s string) bool {
