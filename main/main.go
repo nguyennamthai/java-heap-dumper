@@ -23,17 +23,17 @@ func main() {
 		klog.Fatalf("Error adding custom resource scheme: %v", err.Error())
 	}
 
-	kubeConfig, err := rest.InClusterConfig()
+	baseConfig, err := rest.InClusterConfig()
 	if err != nil {
 		klog.Fatalf("Failed to load in-cluster config. Ensure this is running inside a Pod with a ServiceAccount: %s", err.Error())
 	}
 
-	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	kubeClient, err := kubernetes.NewForConfig(baseConfig)
 	if err != nil {
 		klog.Fatalf("Error building kubernetes client: %v", err.Error())
 	}
 
-	crdConfig := *kubeConfig
+	crdConfig := *baseConfig
 	crdConfig.ContentConfig.GroupVersion = &dumperV1.SchemeGroupVersion
 	crdConfig.APIPath = "/apis"
 	crdConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
@@ -44,7 +44,10 @@ func main() {
 	}
 
 	informer := dumperV1.NewInformer(crdClient, time.Minute*10)
-	inj := &injector.Injector{Client: kubeClient}
+	inj := &injector.Injector{
+		Client:     kubeClient,
+		RestConfig: baseConfig,
+	}
 
 	heapDumpCtr := controller.New(kubeClient, crdClient, informer, inj)
 	stopCh := setUpSignalHandler()

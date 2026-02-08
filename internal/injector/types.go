@@ -7,12 +7,5 @@ import (
 
 type Injector struct {
 	Client     kubernetes.Interface
-	restConfig *rest.Config
-}
-
-func NewInjector(client kubernetes.Interface, config *rest.Config) *Injector {
-	return &Injector{
-		Client:     client,
-		restConfig: config,
-	}
+	RestConfig *rest.Config
 }

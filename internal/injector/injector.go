@@ -168,7 +168,7 @@ func (i *Injector) exec(ctx context.Context, pod *corev1.Pod, containerName stri
 			TTY:       false,
 		}, scheme.ParameterCodec)
 
-	executor, err := remotecommand.NewSPDYExecutor(i.restConfig, "POST", req.URL())
+	executor, err := remotecommand.NewSPDYExecutor(i.RestConfig, "POST", req.URL())
 	if err != nil {
 		return err
 	}
