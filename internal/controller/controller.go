@@ -150,9 +150,10 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 
 	var errs []error
 	for _, pod := range pods {
-		containerName, err := findContainerName(&pod)
+		p := pod
+		containerName, err := findContainerName(&p)
 		if err != nil {
-			slog.Warn("Skipping pod", "pod", pod.Name, "error", err)
+			slog.Warn("Skipping pod", "pod", p.Name, "error", err)
 			errs = append(errs, err)
 			continue
 		}
@@ -162,8 +163,8 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 			ProcessName:   binaryName,
 		}
 		func() {
-			if err := c.injector.Inject(ctx, &pod, opts); err != nil {
-				slog.Error("Failed to inject", "pod", pod.Name, "error", err)
+			if err := c.injector.Inject(ctx, &p, opts); err != nil {
+				slog.Error("Failed to inject", "pod", p.Name, "error", err)
 				errs = append(errs, err)
 			}
 		}()
@@ -201,9 +202,10 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 
 	var errs []error
 	for _, pod := range pods {
-		containerName, err := findContainerName(&pod)
+		p := pod
+		containerName, err := findContainerName(&p)
 		if err != nil {
-			slog.Warn("Skipping pod", "pod", pod.Name, "error", err)
+			slog.Warn("Skipping pod", "pod", p.Name, "error", err)
 			errs = append(errs, err)
 			continue
 		}
@@ -213,8 +215,8 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 			ProcessName:   binaryName,
 		}
 		func() {
-			if err := c.injector.Remove(ctx, &pod, opts); err != nil {
-				slog.Error("Failed to clean up pod", "pod", pod.Name, "error", err)
+			if err := c.injector.Remove(ctx, &p, opts); err != nil {
+				slog.Error("Failed to clean up pod", "pod", p.Name, "error", err)
 				errs = append(errs, err)
 			}
 		}()
