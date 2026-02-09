@@ -13,6 +13,13 @@ type Injector struct {
 type Options struct {
 	ContainerName string
 	FileName      string
-	StartCmd      string
+	SubCmd        string
 	EnvVars       map[string]string
+}
+
+func (options Options) FullCmd() string {
+	if options.SubCmd == "" {
+		return options.FileName
+	}
+	return options.FileName + " " + options.SubCmd
 }

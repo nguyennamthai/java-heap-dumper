@@ -24,7 +24,7 @@ const (
 )
 
 func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, opts Options) error {
-	running, err := i.isProcessRunning(ctx, pod, opts.ContainerName, opts.FileName)
+	running, err := i.isProcessRunning(ctx, pod, opts.ContainerName, opts.FullCmd())
 	if err != nil {
 		return fmt.Errorf("failed to check status of the process %s: %w", opts.FileName, err)
 	}
@@ -93,7 +93,7 @@ func formatEnvVars(envVarMap map[string]string) string {
 func (i *Injector) Remove(ctx context.Context, pod *corev1.Pod, opts Options) error {
 	slog.Info("Cleaning up binary files in container ...", "namespace", pod.Namespace, "pod", pod.Name, "container", opts.ContainerName)
 
-	killCmd := []string{"pkill", "-f", opts.FileName}
+	killCmd := []string{"pkill", "-f", opts.FullCmd()}
 	if err := i.exec(ctx, pod, opts.ContainerName, killCmd, nil, nil, nil); err != nil {
 		slog.Warn("Failed to kill process (might not be running)", "processName", opts.FileName, "error", err)
 	}
