@@ -66,7 +66,7 @@ func main() {
 	}
 }
 
-func loadEnvironmentVariables() types.CmdEvnVars {
+func loadEnvironmentVariables() types.CmdEnvVars {
 	statusFile = fmt.Sprintf("%s/monitor_status.json", dumpDir)
 	reportFile = fmt.Sprintf("%s/dump_report.json", dumpDir)
 
@@ -82,7 +82,7 @@ func loadEnvironmentVariables() types.CmdEvnVars {
 		os.Exit(1)
 	}
 
-	return types.CmdEvnVars{
+	return types.CmdEnvVars{
 		ThresholdKb: int64(thresholdGb * 1024 * 1024),
 	}
 }
