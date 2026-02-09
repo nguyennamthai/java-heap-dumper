@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -23,36 +24,38 @@ const (
 )
 
 func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, opts Options) error {
-	running, err := i.isProcessRunning(ctx, pod, opts.ContainerName, opts.ProcessName)
+	running, err := i.isProcessRunning(ctx, pod, opts.ContainerName, opts.FileName)
 	if err != nil {
-		return fmt.Errorf("failed to check status of the process %s: %w", opts.ProcessName, err)
+		return fmt.Errorf("failed to check status of the process %s: %w", opts.FileName, err)
 	}
 
 	if running {
-		slog.Info("Process is already running, skipping injection", "processName", opts.ProcessName)
+		slog.Info("Process is already running, skipping injection", "processName", opts.FileName)
 		return nil
 	}
 
-	slog.Info("Injecting binary into container", "processName", opts.ProcessName, "namespace", pod.Namespace, "podName", pod.Name, "containerName", opts.ContainerName)
+	slog.Info("Injecting binary into container", "processName", opts.FileName, "namespace", pod.Namespace, "podName", pod.Name, "containerName", opts.ContainerName)
 	if err := i.exec(ctx, pod, opts.ContainerName, []string{"mkdir", "-p", remoteDir}, nil, nil, nil); err != nil {
 		return fmt.Errorf("failed to create remote directory: %w", err)
 	}
 
-	var localPath = localDir + opts.ProcessName
-	var remoteBinaryPath = remoteDir + opts.ProcessName
-	var remoteLogPath = remoteDir + opts.ProcessName + ".log"
+	var localPath = localDir + opts.FileName
+	var remoteBinaryPath = remoteDir + opts.FileName
+	var remoteLogPath = remoteDir + opts.FileName + ".log"
 	if err := i.copyFile(ctx, pod, opts.ContainerName, localPath, remoteBinaryPath); err != nil {
 		return fmt.Errorf("failed to inject file %s to %s: %w", localPath, remoteBinaryPath, err)
 	}
 
-	shCmd := fmt.Sprintf("THRESHOLD_GB=%v nohup %s > %s 2>&1 &", opts.ThresholdGb, remoteBinaryPath, remoteLogPath)
+	startCmd := fmt.Sprintf("nohup %s > %s 2>&1 &", remoteBinaryPath, remoteLogPath)
+	shCmd := strings.TrimSpace(formatEnvVars(opts.EnvVars) + " " + startCmd)
 	execCmd := []string{"sh", "-c", shCmd}
+
 	var stdErr bytes.Buffer
 	if err := i.exec(ctx, pod, opts.ContainerName, execCmd, nil, nil, &stdErr); err != nil {
 		return fmt.Errorf("failed to start process: %w (stderr: %s)", err, stdErr.String())
 	}
 
-	slog.Info("Successfully injected file and started process", "processName", opts.ProcessName)
+	slog.Info("Successfully injected file and started process", "processName", opts.FileName)
 	return nil
 }
 
@@ -75,20 +78,32 @@ func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, contai
 	return stdout.Len() > 0, nil
 }
 
+func formatEnvVars(envVarMap map[string]string) string {
+	if envVarMap == nil {
+		return ""
+	}
+
+	var envPairs []string
+	for k, v := range envVarMap {
+		envPairs = append(envPairs, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(envPairs, " ")
+}
+
 func (i *Injector) Remove(ctx context.Context, pod *corev1.Pod, opts Options) error {
 	slog.Info("Cleaning up binary files in container ...", "namespace", pod.Namespace, "pod", pod.Name, "container", opts.ContainerName)
 
-	killCmd := []string{"pkill", "-f", opts.ProcessName}
+	killCmd := []string{"pkill", "-f", opts.FileName}
 	if err := i.exec(ctx, pod, opts.ContainerName, killCmd, nil, nil, nil); err != nil {
-		slog.Warn("Failed to kill process (might not be running)", "processName", opts.ProcessName, "error", err)
+		slog.Warn("Failed to kill process (might not be running)", "processName", opts.FileName, "error", err)
 	}
 
-	rmCmd := []string{"rm", "-f", remoteDir + opts.ProcessName, remoteDir + opts.ProcessName + ".log"}
+	rmCmd := []string{"rm", "-f", remoteDir + opts.FileName, remoteDir + opts.FileName + ".log"}
 	if err := i.exec(ctx, pod, opts.ContainerName, rmCmd, nil, nil, nil); err != nil {
 		return fmt.Errorf("failed to remove files: %w", err)
 	}
 
-	slog.Info("Successfully removed binary file", "processName", opts.ProcessName)
+	slog.Info("Successfully removed binary file", "processName", opts.FileName)
 	return nil
 }
 

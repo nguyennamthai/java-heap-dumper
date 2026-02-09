@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	coreV1 "k8s.io/api/core/v1"
@@ -26,7 +27,19 @@ const (
 )
 
 var (
-	binaryNames = []string{"gc-monitor", "dump-publisher"}
+	cmdOptions = []CmdOptions{
+		{
+			FileName: "gc-monitor",
+		},
+		{
+			FileName: "gc-publisher",
+			SubCmd:   "s3",
+		},
+		{
+			FileName: "gc-publisher",
+			SubCmd:   "slack",
+		},
+	}
 )
 
 func New(baseClient kubernetes.Interface, crdClient rest.Interface, informer cache.SharedIndexInformer, inj *injector.Injector) *Controller {
@@ -133,15 +146,15 @@ func (c *Controller) handleCreation(ctx context.Context, dumper *dumperV1.HeapDu
 		}
 	}
 
-	for _, binaryName := range binaryNames {
-		if err := c.injectFile(ctx, dumper, binaryName); err != nil {
+	for _, opts := range cmdOptions {
+		if err := c.injectFile(ctx, dumper, opts); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper, binaryName string) error {
+func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper, opts CmdOptions) error {
 	pods, err := c.findPods(ctx, dumper)
 	if err != nil {
 		return err
@@ -159,8 +172,8 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 
 		opts := injector.Options{
 			ContainerName: containerName,
-			ProcessName:   binaryName,
-			ThresholdGb:   dumper.Spec.ThresholdGb,
+			FileName:      opts.FileName,
+			EnvVars:       map[string]string{"THRESHOLD_GB": strconv.FormatFloat(dumper.Spec.ThresholdGb, 'f', -1, 64)},
 		}
 		if err := c.injector.Inject(ctx, &p, opts); err != nil {
 			slog.Error("Failed to inject", "podName", p.Name, "error", err)
@@ -179,8 +192,8 @@ func (c *Controller) handleDeletion(ctx context.Context, dumper *dumperV1.HeapDu
 		return nil
 	}
 
-	for _, binaryName := range binaryNames {
-		if err := c.removeFile(ctx, dumper, binaryName); err != nil {
+	for _, opts := range cmdOptions {
+		if err := c.removeFile(ctx, dumper, opts); err != nil {
 			return err
 		}
 	}
@@ -191,7 +204,7 @@ func (c *Controller) handleDeletion(ctx context.Context, dumper *dumperV1.HeapDu
 	return c.updateDumper(ctx, dumperCopy)
 }
 
-func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper, binaryName string) error {
+func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper, opts CmdOptions) error {
 	pods, err := c.findPods(ctx, dumper)
 	if err != nil {
 		return err
@@ -209,8 +222,7 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 
 		opts := injector.Options{
 			ContainerName: containerName,
-			ProcessName:   binaryName,
-			ThresholdGb:   dumper.Spec.ThresholdGb,
+			FileName:      opts.FileName,
 		}
 		if err := c.injector.Remove(ctx, &p, opts); err != nil {
 			slog.Error("Failed to clean up pod", "podName", p.Name, "error", err)

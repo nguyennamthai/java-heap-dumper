@@ -16,3 +16,8 @@ type Controller struct {
 	informer   cache.SharedIndexInformer
 	injector   *injector.Injector
 }
+
+type CmdOptions struct {
+	FileName string
+	SubCmd   string
+}
