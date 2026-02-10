@@ -1,4 +1,4 @@
-package types
+package main
 
 // MonitorStatus represents the heartbeat data written by the monitor
 type MonitorStatus struct {

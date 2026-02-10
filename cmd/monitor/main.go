@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"java-heap-dumper/internal/types"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -66,7 +65,7 @@ func main() {
 	}
 }
 
-func loadEnvironmentVariables() types.CmdEnvVars {
+func loadEnvironmentVariables() CmdEnvVars {
 	statusFile = fmt.Sprintf("%s/monitor_status.json", dumpDir)
 	reportFile = fmt.Sprintf("%s/dump_report.json", dumpDir)
 
@@ -82,7 +81,7 @@ func loadEnvironmentVariables() types.CmdEnvVars {
 		os.Exit(1)
 	}
 
-	return types.CmdEnvVars{
+	return CmdEnvVars{
 		ThresholdKb: int64(thresholdGb * 1024 * 1024),
 	}
 }
@@ -100,7 +99,7 @@ func verifyJavaProcessId() error {
 }
 
 func writeStatus(state string, message string) {
-	s := types.MonitorStatus{
+	s := MonitorStatus{
 		State:     state,
 		Message:   message,
 		Timestamp: time.Now().Unix(),
