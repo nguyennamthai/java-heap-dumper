@@ -3,7 +3,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -22,8 +24,9 @@ import (
 )
 
 const (
-	maxRetries    = 3
-	finalizerName = "cleanup"
+	publishDumpPath = "/publishDump"
+	maxRetries      = 3
+	finalizerName   = "cleanup"
 )
 
 var (
@@ -83,6 +86,8 @@ func (c *Controller) Run(ctx context.Context, ctrName string, nbrOfWorkers int, 
 		return
 	}
 
+	go c.startHttpServer()
+
 	slog.Info("Caches synced. Starting workers...")
 	for i := 0; i < nbrOfWorkers; i++ {
 		go wait.Until(func() { c.runWorker(ctx) }, time.Second, stopCh)
@@ -90,6 +95,34 @@ func (c *Controller) Run(ctx context.Context, ctrName string, nbrOfWorkers int, 
 
 	<-stopCh
 	slog.Info("Stopping controller")
+}
+
+func (c *Controller) startHttpServer() {
+	mux := http.NewServeMux()
+	mux.HandleFunc(publishDumpPath, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			slog.Error("Failed to read request body", "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		defer func() {
+			_ = r.Body.Close()
+		}()
+
+		slog.Info("Received heap dump report", "payload", string(body))
+		w.WriteHeader(http.StatusOK)
+	})
+
+	slog.Info("Starting HTTP server on :8080")
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		slog.Error("HTTP server failed", "error", err)
+	}
 }
 
 func (c *Controller) runWorker(ctx context.Context) {
