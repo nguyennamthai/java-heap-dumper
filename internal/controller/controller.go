@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -115,7 +116,14 @@ func (c *Controller) startHttpServer() {
 			_ = r.Body.Close()
 		}()
 
-		slog.Info("Received heap dump report", "payload", string(body))
+		var dumpLoc HeapDumpLocation
+		if err := json.Unmarshal(body, &dumpLoc); err != nil {
+			slog.Error("Failed to unmarshal request body", "error", err)
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+
+		slog.Info("Received heap dump report", "namespace", dumpLoc.Namespace, "podName", dumpLoc.PodName, "localPath", dumpLoc.LocalPath)
 		w.WriteHeader(http.StatusOK)
 	})
 

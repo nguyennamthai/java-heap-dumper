@@ -21,3 +21,9 @@ type CmdOptions struct {
 	FileName string
 	SubCmd   string
 }
+
+type HeapDumpLocation struct {
+	Namespace string `json:"namespace"`
+	PodName   string `json:"podName"`
+	LocalPath string `json:"localPath"`
+}
