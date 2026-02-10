@@ -46,7 +46,8 @@ func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, opts Options) er
 		return fmt.Errorf("failed to inject file %s to %s: %w", localPath, remoteBinaryPath, err)
 	}
 
-	startCmd := fmt.Sprintf("nohup %s > %s 2>&1 &", remoteBinaryPath, remoteLogPath)
+	procCmd := strings.TrimSpace(remoteBinaryPath + " " + opts.SubCmd)
+	startCmd := fmt.Sprintf("nohup %s > %s 2>&1 &", procCmd, remoteLogPath)
 	shCmd := strings.TrimSpace(formatEnvVars(opts.EnvVars) + " " + startCmd)
 	execCmd := []string{"sh", "-c", shCmd}
 
@@ -59,8 +60,8 @@ func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, opts Options) er
 	return nil
 }
 
-func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, containerName string, processName string) (bool, error) {
-	cmd := []string{"pgrep", "-f", processName}
+func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, containerName string, fullCmd string) (bool, error) {
+	cmd := []string{"pgrep", "-f", fullCmd}
 	stdout := new(bytes.Buffer)
 
 	err := i.exec(ctx, pod, containerName, cmd, nil, stdout, nil)
@@ -72,7 +73,7 @@ func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, contai
 				return false, nil
 			}
 		}
-		return false, fmt.Errorf("failed to check status of process %s: %w", processName, err)
+		return false, fmt.Errorf("failed to check status of process %s: %w", fullCmd, err)
 	}
 
 	return stdout.Len() > 0, nil

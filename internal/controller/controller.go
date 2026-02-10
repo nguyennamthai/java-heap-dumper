@@ -35,10 +35,6 @@ var (
 			FileName: "gc-publisher",
 			SubCmd:   "s3",
 		},
-		{
-			FileName: "gc-publisher",
-			SubCmd:   "slack",
-		},
 	}
 )
 
