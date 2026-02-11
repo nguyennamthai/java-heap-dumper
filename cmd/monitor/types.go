@@ -7,6 +7,6 @@ type MonitorStatus struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-type CmdEnvVars struct {
-	ThresholdKb int64
+type envVars struct {
+	thresholdKb int64
 }

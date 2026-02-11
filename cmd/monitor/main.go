@@ -3,28 +3,23 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
+	"java-heap-dumper/internal/controller"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
 const (
 	targetProcessId = 1
 	dumpDir         = "/tmp/dumps"
-)
-
-var (
-	statusFile string
-	reportFile string
+	statusFilePath  = dumpDir + "/monitor_status.json"
+	reportFilePath  = dumpDir + "/dump_report.json"
 )
 
 func main() {
-	envVars := loadEnvironmentVariables()
+	envVars := loadEnvVariables()
 
 	if err := os.MkdirAll(dumpDir, 0777); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to create dump directory %s: %v\n", dumpDir, err)
@@ -36,7 +31,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	writeStatus("Running", "Monitor initialized and watching the java process")
+	writeStatus("Running", "Monitor initialized")
 
 	for {
 		if hasPendingDump() {
@@ -46,18 +41,18 @@ func main() {
 
 		usageKb, err := getOldGenUsage()
 		if err != nil {
-			writeStatus("Warning", fmt.Sprintf("jstat failed: %v", err))
+			writeStatus("Error", fmt.Sprintf("%v", err))
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
 		writeStatus("Running", fmt.Sprintf("Old Gen Usage: %d KB", usageKb))
 
-		if usageKb >= envVars.ThresholdKb {
+		if usageKb >= envVars.thresholdKb {
 			if err := takeHeapDump(); err != nil {
-				writeStatus("Error", fmt.Sprintf("Dump failed: %v", err))
+				writeStatus("Error", fmt.Sprintf("Failed to take a heap dump: %v", err))
 			} else {
-				waitForTermination()
+				time.Sleep(1 * time.Hour) // No need to take another dump immediately
 			}
 		}
 
@@ -65,10 +60,7 @@ func main() {
 	}
 }
 
-func loadEnvironmentVariables() CmdEnvVars {
-	statusFile = fmt.Sprintf("%s/monitor_status.json", dumpDir)
-	reportFile = fmt.Sprintf("%s/dump_report.json", dumpDir)
-
+func loadEnvVariables() envVars {
 	envThresholdGb := os.Getenv("THRESHOLD_GB")
 	if envThresholdGb == "" {
 		_, _ = fmt.Fprintf(os.Stderr, "THRESHOLD_GB environment variable is required\n")
@@ -81,8 +73,8 @@ func loadEnvironmentVariables() CmdEnvVars {
 		os.Exit(1)
 	}
 
-	return CmdEnvVars{
-		ThresholdKb: int64(thresholdGb * 1024 * 1024),
+	return envVars{
+		thresholdKb: int64(thresholdGb * 1024 * 1024),
 	}
 }
 
@@ -111,11 +103,11 @@ func writeStatus(state string, message string) {
 		return
 	}
 
-	_ = os.WriteFile(statusFile, data, 0644)
+	_ = os.WriteFile(statusFilePath, data, 0644)
 }
 
 func hasPendingDump() bool {
-	_, err := os.Stat(reportFile)
+	_, err := os.Stat(reportFilePath)
 	return err == nil
 }
 
@@ -131,7 +123,7 @@ func getOldGenUsage() (int64, error) {
 		return 0, fmt.Errorf("unexpected jstat output format")
 	}
 
-	// The first line is header
+	// The first line is the header
 	fields := strings.Fields(lines[1])
 
 	// OU column, in KB, is at index 7
@@ -158,23 +150,24 @@ func takeHeapDump() error {
 		return fmt.Errorf("jcmd failed: %s: %v", string(out), err)
 	}
 
-	nodeName := os.Getenv("NODE_NAME")
-	jsonContent := fmt.Sprintf(`{"file":"%s", "node":"%s"}`, fileName, nodeName)
-	return os.WriteFile(reportFile, []byte(jsonContent), 0644)
-}
+	podName, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("failed to get pod name: %w", err)
+	}
 
-func waitForTermination() {
-	writeStatus("Completed", "Heap dump taken.")
+	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		return fmt.Errorf("failed to get namespace: %w", err)
+	}
 
-	// Create a channel to listen for OS signals
-	sigChan := make(chan os.Signal, 1)
-
-	// Register for SIGINT (Ctrl+C) and SIGTERM (Kubernetes Kill)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Block the program until the signal arrives.
-	<-sigChan
-
-	slog.Info("Shutting down the monitor ...")
-	os.Exit(0)
+	dumpLocation := controller.HeapDumpLocation{
+		Namespace: string(namespace),
+		PodName:   podName,
+		LocalPath: fullPath,
+	}
+	jsonContent, err := json.Marshal(dumpLocation)
+	if err != nil {
+		return fmt.Errorf("failed to marshal dump location: %w", err)
+	}
+	return os.WriteFile(reportFilePath, jsonContent, 0644)
 }
