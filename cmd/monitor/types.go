@@ -8,5 +8,7 @@ type MonitorStatus struct {
 }
 
 type envVars struct {
+	namespace   string
+	podName     string
 	thresholdKb int64
 }

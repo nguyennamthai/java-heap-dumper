@@ -49,7 +49,7 @@ func main() {
 		writeStatus("Running", fmt.Sprintf("Old Gen Usage: %d KB", usageKb))
 
 		if usageKb >= envVars.thresholdKb {
-			if err := takeHeapDump(); err != nil {
+			if err := takeHeapDump(envVars); err != nil {
 				writeStatus("Error", fmt.Sprintf("Failed to take a heap dump: %v", err))
 			} else {
 				time.Sleep(1 * time.Hour) // No need to take another dump immediately
@@ -73,7 +73,21 @@ func loadEnvVariables() envVars {
 		os.Exit(1)
 	}
 
+	podName, err := os.Hostname()
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to find pod name: %v\n", err)
+		os.Exit(1)
+	}
+
+	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to find namespace: %v\n", err)
+		os.Exit(1)
+	}
+
 	return envVars{
+		namespace:   strings.TrimSpace(string(namespace)),
+		podName:     podName,
 		thresholdKb: int64(thresholdGb * 1024 * 1024),
 	}
 }
@@ -140,7 +154,7 @@ func getOldGenUsage() (int64, error) {
 	return int64(usageKb), nil
 }
 
-func takeHeapDump() error {
+func takeHeapDump(envVars envVars) error {
 	timestamp := time.Now().Format("20060102_150405")
 	fileName := fmt.Sprintf("heap_dump_%s.hprof", timestamp)
 	fullPath := fmt.Sprintf("%s/%s", dumpDir, fileName)
@@ -150,19 +164,9 @@ func takeHeapDump() error {
 		return fmt.Errorf("jcmd failed: %s: %v", string(out), err)
 	}
 
-	podName, err := os.Hostname()
-	if err != nil {
-		return fmt.Errorf("failed to get pod name: %w", err)
-	}
-
-	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-	if err != nil {
-		return fmt.Errorf("failed to get namespace: %w", err)
-	}
-
 	dumpLocation := controller.HeapDumpLocation{
-		Namespace: string(namespace),
-		PodName:   podName,
+		Namespace: envVars.namespace,
+		PodName:   envVars.podName,
 		LocalPath: fullPath,
 	}
 	jsonContent, err := json.Marshal(dumpLocation)
