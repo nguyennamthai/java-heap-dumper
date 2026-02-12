@@ -29,6 +29,7 @@ type HeapDumperList struct {
 }
 
 type ControllerConfig struct {
-	ControllerName string
+	ServiceName    string
+	PodName        string
 	ControllerPort int
 }

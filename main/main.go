@@ -55,12 +55,13 @@ func main() {
 	stopCh := setUpSignalHandler()
 
 	port, _ := strconv.Atoi(os.Getenv("CONTROLLER_PORT"))
-	ctrConfig := dumperV1.ControllerConfig{
-		ControllerName: os.Getenv("CONTROLLER_NAME"),
+	ctrlCfg := dumperV1.ControllerConfig{
+		ServiceName:    os.Getenv("SERVICE_NAME"),
+		PodName:        os.Getenv("POD_NAME"),
 		ControllerPort: port,
 	}
 	go informer.Run(stopCh)
-	heapDumpCtr.Run(context.Background(), ctrConfig, 2, stopCh)
+	heapDumpCtr.Run(context.Background(), ctrlCfg, 2, stopCh)
 }
 
 func setUpSignalHandler() <-chan struct{} {

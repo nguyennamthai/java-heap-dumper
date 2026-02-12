@@ -77,28 +77,28 @@ func (c *Controller) enqueue(obj interface{}) {
 	}
 }
 
-func (c *Controller) Run(ctx context.Context, ctrConfig dumperV1.ControllerConfig, nbrOfWorkers int, stopCh <-chan struct{}) {
+func (c *Controller) Run(ctx context.Context, ctrlCfg dumperV1.ControllerConfig, nbrOfWorkers int, stopCh <-chan struct{}) {
 	defer runtime.HandleCrash()
 	defer c.queue.ShutDown()
 
 	slog.Info("Starting controller...")
-	if !cache.WaitForNamedCacheSync(ctrConfig.ControllerName, stopCh, c.informer.HasSynced) {
+	if !cache.WaitForNamedCacheSync(ctrlCfg.PodName, stopCh, c.informer.HasSynced) {
 		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}
 
-	go c.startHttpServer(ctrConfig)
+	go c.startHttpServer(ctrlCfg)
 
 	slog.Info("Caches synced. Starting workers...")
 	for i := 0; i < nbrOfWorkers; i++ {
-		go wait.Until(func() { c.runWorker(ctx) }, time.Second, stopCh)
+		go wait.Until(func() { c.runWorker(ctx, ctrlCfg) }, time.Second, stopCh)
 	}
 
 	<-stopCh
 	slog.Info("Stopping controller")
 }
 
-func (c *Controller) startHttpServer(ctrConfig dumperV1.ControllerConfig) {
+func (c *Controller) startHttpServer(ctrlCfg dumperV1.ControllerConfig) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(publishDumpPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -127,18 +127,18 @@ func (c *Controller) startHttpServer(ctrConfig dumperV1.ControllerConfig) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	slog.Info("Starting HTTP server", "port", ctrConfig.ControllerPort)
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", ctrConfig.ControllerPort), mux); err != nil {
+	slog.Info("Starting HTTP server", "port", ctrlCfg.ControllerPort)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", ctrlCfg.ControllerPort), mux); err != nil {
 		slog.Error("HTTP server failed", "error", err)
 	}
 }
 
-func (c *Controller) runWorker(ctx context.Context) {
-	for c.processItem(ctx) {
+func (c *Controller) runWorker(ctx context.Context, ctrlCfg dumperV1.ControllerConfig) {
+	for c.processItem(ctx, ctrlCfg) {
 	}
 }
 
-func (c *Controller) processItem(ctx context.Context) bool {
+func (c *Controller) processItem(ctx context.Context, ctrlCfg dumperV1.ControllerConfig) bool {
 	key, quit := c.queue.Get()
 	if quit {
 		return false
@@ -148,12 +148,12 @@ func (c *Controller) processItem(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
-	err := c.reconcile(ctx, key)
+	err := c.reconcile(ctx, key, ctrlCfg)
 	c.handleErr(err, key)
 	return true
 }
 
-func (c *Controller) reconcile(ctx context.Context, key string) error {
+func (c *Controller) reconcile(ctx context.Context, key string, ctrlCfg dumperV1.ControllerConfig) error {
 	item, exists, err := c.informer.GetIndexer().GetByKey(key)
 	if err != nil {
 		return err
@@ -168,12 +168,12 @@ func (c *Controller) reconcile(ctx context.Context, key string) error {
 	}
 
 	if dumper.ObjectMeta.DeletionTimestamp.IsZero() {
-		return c.handleCreation(ctx, dumper)
+		return c.handleCreation(ctx, dumper, ctrlCfg)
 	}
 	return c.handleDeletion(ctx, dumper)
 }
 
-func (c *Controller) handleCreation(ctx context.Context, dumper *dumperV1.HeapDumper) error {
+func (c *Controller) handleCreation(ctx context.Context, dumper *dumperV1.HeapDumper, ctrlCfg dumperV1.ControllerConfig) error {
 	if !containsString(dumper.ObjectMeta.Finalizers, finalizerName) {
 		dumperCopy := dumper.DeepCopy()
 		dumperCopy.ObjectMeta.Finalizers = append(dumperCopy.ObjectMeta.Finalizers, finalizerName)
@@ -184,14 +184,14 @@ func (c *Controller) handleCreation(ctx context.Context, dumper *dumperV1.HeapDu
 	}
 
 	for _, opts := range cmdOptions {
-		if err := c.injectFile(ctx, dumper, opts); err != nil {
+		if err := c.injectFile(ctx, dumper, ctrlCfg, opts); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper, opts CmdOptions) error {
+func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper, ctrlCfg dumperV1.ControllerConfig, opts CmdOptions) error {
 	pods, err := c.findPods(ctx, dumper)
 	if err != nil {
 		return err
@@ -207,11 +207,17 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 			continue
 		}
 
+		thresholdGb := strconv.FormatFloat(dumper.Spec.ThresholdGb, 'f', -1, 64)
+		controllerUrl := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", ctrlCfg.ServiceName, dumper.Namespace, ctrlCfg.ControllerPort, publishDumpPath)
 		opts := injector.Options{
 			ContainerName: containerName,
 			FileName:      opts.FileName,
-			EnvVars:       map[string]string{"THRESHOLD_GB": strconv.FormatFloat(dumper.Spec.ThresholdGb, 'f', -1, 64)},
+			EnvVars: map[string]string{
+				"THRESHOLD_GB":   thresholdGb,
+				"CONTROLLER_URL": controllerUrl,
+			},
 		}
+
 		if err := c.injector.Inject(ctx, &p, opts); err != nil {
 			slog.Error("Failed to inject", "podName", p.Name, "error", err)
 			errs = append(errs, err)
