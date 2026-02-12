@@ -3,6 +3,7 @@ image:
   pullPolicy: Always
   tag: "1"
 
+serviceName: gc-operator
 controllerPort: 9000
 
 resources:

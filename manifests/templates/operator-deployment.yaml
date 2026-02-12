@@ -21,10 +21,16 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            - name: CONTROLLER_NAME
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: SERVICE_NAME
+              value: {{ .Values.serviceName }}
             - name: CONTROLLER_PORT
               value: {{ .Values.controllerPort }}
           ports:
