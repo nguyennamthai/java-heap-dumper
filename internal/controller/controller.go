@@ -77,17 +77,17 @@ func (c *Controller) enqueue(obj interface{}) {
 	}
 }
 
-func (c *Controller) Run(ctx context.Context, ctrName string, nbrOfWorkers int, stopCh <-chan struct{}) {
+func (c *Controller) Run(ctx context.Context, ctrConfig dumperV1.ControllerConfig, nbrOfWorkers int, stopCh <-chan struct{}) {
 	defer runtime.HandleCrash()
 	defer c.queue.ShutDown()
 
 	slog.Info("Starting controller...")
-	if !cache.WaitForNamedCacheSync(ctrName, stopCh, c.informer.HasSynced) {
+	if !cache.WaitForNamedCacheSync(ctrConfig.ControllerName, stopCh, c.informer.HasSynced) {
 		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}
 
-	go c.startHttpServer()
+	go c.startHttpServer(ctrConfig)
 
 	slog.Info("Caches synced. Starting workers...")
 	for i := 0; i < nbrOfWorkers; i++ {
@@ -98,7 +98,7 @@ func (c *Controller) Run(ctx context.Context, ctrName string, nbrOfWorkers int, 
 	slog.Info("Stopping controller")
 }
 
-func (c *Controller) startHttpServer() {
+func (c *Controller) startHttpServer(ctrConfig dumperV1.ControllerConfig) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(publishDumpPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -127,8 +127,8 @@ func (c *Controller) startHttpServer() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	slog.Info("Starting HTTP server on :8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	slog.Info("Starting HTTP server", "port", ctrConfig.ControllerPort)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", ctrConfig.ControllerPort), mux); err != nil {
 		slog.Error("HTTP server failed", "error", err)
 	}
 }

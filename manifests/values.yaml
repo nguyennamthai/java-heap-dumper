@@ -3,6 +3,8 @@ image:
   pullPolicy: Always
   tag: "1"
 
+controllerPort: 9000
+
 resources:
   limits:
     cpu: 100m

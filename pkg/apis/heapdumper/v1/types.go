@@ -27,3 +27,8 @@ type HeapDumperList struct {
 	metav1.ListMeta `json:"metadata"`
 	Items           []HeapDumper `json:"items"`
 }
+
+type ControllerConfig struct {
+	ControllerName string
+	ControllerPort int
+}

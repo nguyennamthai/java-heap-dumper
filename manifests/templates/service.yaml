@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gc-operator
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: gc-operator
+  ports:
+    - protocol: TCP
+      port: {{ .Values.controllerPort }}

@@ -7,6 +7,7 @@ import (
 	"java-heap-dumper/internal/injector"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -53,8 +54,13 @@ func main() {
 	heapDumpCtr := controller.New(kubeClient, crdClient, informer, inj)
 	stopCh := setUpSignalHandler()
 
+	port, _ := strconv.Atoi(os.Getenv("CONTROLLER_PORT"))
+	ctrConfig := dumperV1.ControllerConfig{
+		ControllerName: os.Getenv("CONTROLLER_NAME"),
+		ControllerPort: port,
+	}
 	go informer.Run(stopCh)
-	heapDumpCtr.Run(context.Background(), os.Getenv("CONTROLLER_NAME"), 2, stopCh)
+	heapDumpCtr.Run(context.Background(), ctrConfig, 2, stopCh)
 }
 
 func setUpSignalHandler() <-chan struct{} {

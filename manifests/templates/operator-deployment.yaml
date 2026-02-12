@@ -25,5 +25,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: CONTROLLER_PORT
+              value: {{ .Values.controllerPort }}
+          ports:
+            - containerPort: {{ .Values.controllerPort }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{ toYaml .Values.resources | nindent 12 }}
