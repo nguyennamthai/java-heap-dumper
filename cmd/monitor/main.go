@@ -86,9 +86,10 @@ func loadEnvVariables() envVars {
 	}
 
 	return envVars{
-		namespace:   strings.TrimSpace(string(namespace)),
-		podName:     podName,
-		thresholdKb: int64(thresholdGb * 1024 * 1024),
+		namespace:     strings.TrimSpace(string(namespace)),
+		podName:       podName,
+		thresholdKb:   int64(thresholdGb * 1024 * 1024),
+		controllerUrl: os.Getenv("CONTROLLER_URL"),
 	}
 }
 
