@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"java-heap-dumper/internal/controller"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -47,16 +49,26 @@ func main() {
 		}
 
 		writeStatus("Running", fmt.Sprintf("Old Gen Usage: %d KB", usageKb))
-
-		if usageKb >= envVars.thresholdKb {
-			if err := takeHeapDump(envVars); err != nil {
-				writeStatus("Error", fmt.Sprintf("Failed to take a heap dump: %v", err))
-			} else {
-				time.Sleep(1 * time.Hour) // No need to take another dump immediately
-			}
+		if usageKb < envVars.thresholdKb {
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
-		time.Sleep(5 * time.Second)
+		jsonContent, err := takeHeapDump(envVars)
+		if err != nil {
+			writeStatus("Error", fmt.Sprintf("Failed to take a heap dump: %v", err))
+			time.Sleep(10 * time.Minute)
+			continue
+		}
+
+		err = informController(envVars.controllerUrl, jsonContent)
+		if err != nil {
+			writeStatus("Error", fmt.Sprintf("Failed to inform controller: %v", err))
+			time.Sleep(10 * time.Minute)
+			continue
+		}
+
+		time.Sleep(1 * time.Hour) // No need to take another dump immediately
 	}
 }
 
@@ -155,14 +167,14 @@ func getOldGenUsage() (int64, error) {
 	return int64(usageKb), nil
 }
 
-func takeHeapDump(envVars envVars) error {
+func takeHeapDump(envVars envVars) ([]byte, error) {
 	timestamp := time.Now().Format("20060102_150405")
 	fileName := fmt.Sprintf("heap_dump_%s.hprof", timestamp)
 	fullPath := fmt.Sprintf("%s/%s", dumpDir, fileName)
 
 	cmd := exec.Command("jcmd", fmt.Sprintf("%d", targetProcessId), "GC.heap_dump", fullPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("jcmd failed: %s: %v", string(out), err)
+		return nil, fmt.Errorf("jcmd failed: %s: %v", string(out), err)
 	}
 
 	dumpLocation := controller.HeapDumpLocation{
@@ -172,7 +184,29 @@ func takeHeapDump(envVars envVars) error {
 	}
 	jsonContent, err := json.Marshal(dumpLocation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal dump location: %w", err)
+		return nil, fmt.Errorf("failed to marshal dump location: %w", err)
 	}
-	return os.WriteFile(reportFilePath, jsonContent, 0644)
+
+	err = os.WriteFile(reportFilePath, jsonContent, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write dump report: %w", err)
+	}
+
+	return jsonContent, nil
+}
+
+func informController(ctrlUrl string, jsonContent []byte) error {
+	resp, err := http.Post(ctrlUrl, "application/json", bytes.NewBuffer(jsonContent))
+	if err != nil {
+		return fmt.Errorf("failed to send dump report: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("controller returned status: %s", resp.Status)
+	}
+
+	return nil
 }
