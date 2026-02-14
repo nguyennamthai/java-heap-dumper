@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -126,6 +128,7 @@ func (c *Controller) startHttpServer(ctrlCfg dumperV1.ControllerConfig) {
 		}
 
 		slog.Info("Received heap dump report", "namespace", dumpLoc.Namespace, "podName", dumpLoc.PodName, "localPath", dumpLoc.LocalPath)
+		triggerUploadToS3(dumpLoc)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -133,6 +136,10 @@ func (c *Controller) startHttpServer(ctrlCfg dumperV1.ControllerConfig) {
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", ctrlCfg.ControllerPort), mux); err != nil {
 		slog.Error("HTTP server failed", "error", err)
 	}
+}
+
+func triggerUploadToS3(dumpLoc HeapDumpLocation) {
+	_ = fmt.Sprintf("%s%s", os.Getenv("S3_BUCKET_PREFIX"), filepath.Base(dumpLoc.LocalPath))
 }
 
 func (c *Controller) runWorker(ctx context.Context, ctrlCfg dumperV1.ControllerConfig) {
