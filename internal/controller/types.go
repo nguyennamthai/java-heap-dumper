@@ -18,8 +18,9 @@ type Controller struct {
 }
 
 type CmdOptions struct {
-	FileName string
-	SubCmd   string
+	fileName         string
+	subCmd           string
+	startOnInjection bool
 }
 
 type HeapDumpLocation struct {

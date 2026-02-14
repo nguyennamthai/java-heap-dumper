@@ -33,11 +33,13 @@ const (
 var (
 	cmdOptions = []CmdOptions{
 		{
-			FileName: "gc-monitor",
+			fileName:         "gc-monitor",
+			startOnInjection: true,
 		},
 		{
-			FileName: "gc-publisher",
-			SubCmd:   "s3",
+			fileName:         "gc-publisher",
+			subCmd:           "s3",
+			startOnInjection: false,
 		},
 	}
 )
@@ -210,8 +212,9 @@ func (c *Controller) injectFile(ctx context.Context, dumper *dumperV1.HeapDumper
 		thresholdGb := strconv.FormatFloat(dumper.Spec.ThresholdGb, 'f', -1, 64)
 		controllerUrl := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", ctrlCfg.ServiceName, dumper.Namespace, ctrlCfg.ControllerPort, publishDumpPath)
 		opts := injector.Options{
-			ContainerName: containerName,
-			FileName:      opts.FileName,
+			ContainerName:    containerName,
+			FileName:         opts.fileName,
+			StartOnInjection: opts.startOnInjection,
 			EnvVars: map[string]string{
 				"THRESHOLD_GB":   thresholdGb,
 				"CONTROLLER_URL": controllerUrl,
@@ -265,7 +268,7 @@ func (c *Controller) removeFile(ctx context.Context, dumper *dumperV1.HeapDumper
 
 		opts := injector.Options{
 			ContainerName: containerName,
-			FileName:      opts.FileName,
+			FileName:      opts.fileName,
 		}
 		if err := c.injector.Remove(ctx, &p, opts); err != nil {
 			slog.Error("Failed to clean up pod", "podName", p.Name, "error", err)

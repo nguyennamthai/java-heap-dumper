@@ -11,10 +11,11 @@ type Injector struct {
 }
 
 type Options struct {
-	ContainerName string
-	FileName      string
-	SubCmd        string
-	EnvVars       map[string]string
+	ContainerName    string
+	FileName         string
+	SubCmd           string
+	StartOnInjection bool
+	EnvVars          map[string]string
 }
 
 func (options Options) FullCmd() string {

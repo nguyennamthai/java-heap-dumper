@@ -41,22 +41,18 @@ func (i *Injector) Inject(ctx context.Context, pod *corev1.Pod, opts Options) er
 
 	var localPath = localDir + opts.FileName
 	var remoteBinaryPath = remoteDir + opts.FileName
-	var remoteLogPath = remoteDir + opts.FileName + ".log"
 	if err := i.copyFile(ctx, pod, opts.ContainerName, localPath, remoteBinaryPath); err != nil {
 		return fmt.Errorf("failed to inject file %s to %s: %w", localPath, remoteBinaryPath, err)
 	}
 
-	procCmd := strings.TrimSpace(remoteBinaryPath + " " + opts.SubCmd)
-	startCmd := fmt.Sprintf("nohup %s > %s 2>&1 &", procCmd, remoteLogPath)
-	shCmd := strings.TrimSpace(formatEnvVars(opts.EnvVars) + " " + startCmd)
-	execCmd := []string{"sh", "-c", shCmd}
-
-	var stdErr bytes.Buffer
-	if err := i.exec(ctx, pod, opts.ContainerName, execCmd, nil, nil, &stdErr); err != nil {
-		return fmt.Errorf("failed to start process: %w (stderr: %s)", err, stdErr.String())
+	if opts.StartOnInjection {
+		err = i.ExecuteProcess(ctx, pod, opts)
+		if err != nil {
+			return err
+		}
 	}
 
-	slog.Info("Successfully injected file and started process", "processName", opts.FileName)
+	slog.Info("Successfully injected file", "processName", opts.FileName)
 	return nil
 }
 
@@ -77,6 +73,21 @@ func (i *Injector) isProcessRunning(ctx context.Context, pod *corev1.Pod, contai
 	}
 
 	return stdout.Len() > 0, nil
+}
+
+func (i *Injector) ExecuteProcess(ctx context.Context, pod *corev1.Pod, opts Options) error {
+	var remoteBinaryPath = remoteDir + opts.FileName
+	var remoteLogPath = remoteDir + opts.FileName + ".log"
+	procCmd := strings.TrimSpace(remoteBinaryPath + " " + opts.SubCmd)
+	startCmd := fmt.Sprintf("nohup %s > %s 2>&1 &", procCmd, remoteLogPath)
+	shCmd := strings.TrimSpace(formatEnvVars(opts.EnvVars) + " " + startCmd)
+	execCmd := []string{"sh", "-c", shCmd}
+
+	var stdErr bytes.Buffer
+	if err := i.exec(ctx, pod, opts.ContainerName, execCmd, nil, nil, &stdErr); err != nil {
+		return fmt.Errorf("failed to start process: %w (stderr: %s)", err, stdErr.String())
+	}
+	return nil
 }
 
 func formatEnvVars(envVarMap map[string]string) string {
