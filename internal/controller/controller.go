@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"time"
 
+	s3Cfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -91,7 +93,7 @@ func (c *Controller) Run(ctx context.Context, ctrlCfg dumperV1.ControllerConfig,
 		return
 	}
 
-	go c.startHttpServer(ctrlCfg)
+	go c.startHttpServer(ctx, ctrlCfg)
 
 	slog.Info("Caches synced. Starting workers...")
 	for i := 0; i < nbrOfWorkers; i++ {
@@ -102,7 +104,13 @@ func (c *Controller) Run(ctx context.Context, ctrlCfg dumperV1.ControllerConfig,
 	slog.Info("Stopping controller")
 }
 
-func (c *Controller) startHttpServer(ctrlCfg dumperV1.ControllerConfig) {
+func (c *Controller) startHttpServer(ctx context.Context, ctrlCfg dumperV1.ControllerConfig) {
+	s3Client, err := getS3Client(ctx)
+	if err != nil {
+		slog.Error("Failed to create S3 client", "error", err)
+		return
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc(publishDumpPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -128,7 +136,7 @@ func (c *Controller) startHttpServer(ctrlCfg dumperV1.ControllerConfig) {
 		}
 
 		slog.Info("Received heap dump report", "namespace", dumpLoc.Namespace, "podName", dumpLoc.PodName, "localPath", dumpLoc.LocalPath)
-		triggerUploadToS3(dumpLoc)
+		triggerUploadToS3(ctx, s3Client, dumpLoc)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -138,8 +146,40 @@ func (c *Controller) startHttpServer(ctrlCfg dumperV1.ControllerConfig) {
 	}
 }
 
-func triggerUploadToS3(dumpLoc HeapDumpLocation) {
-	_ = fmt.Sprintf("%s%s", os.Getenv("S3_BUCKET_PREFIX"), filepath.Base(dumpLoc.LocalPath))
+func getS3Client(ctx context.Context) (*s3.Client, error) {
+	cfg, err := s3Cfg.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s3.NewFromConfig(cfg), nil
+}
+
+func triggerUploadToS3(ctx context.Context, s3Client *s3.Client, dumpLoc HeapDumpLocation) {
+	bucket := os.Getenv("S3_DUMP_BUCKET")
+	objKey := fmt.Sprintf("%s/%s", os.Getenv("S3_DUMP_PREFIX"), filepath.Base(dumpLoc.LocalPath))
+	presignedUrl, err := generatePresignedPutUrl(ctx, s3Client, bucket, objKey)
+	if err != nil {
+		slog.Error("Failed to generate presigned URL", "error", err)
+		return
+	}
+
+	slog.Info("Uploading dump to S3", "presignedUrl", presignedUrl)
+}
+
+func generatePresignedPutUrl(ctx context.Context, s3Client *s3.Client, bucket string, objKey string) (string, error) {
+	presignClient := s3.NewPresignClient(s3Client)
+	putInput := &s3.PutObjectInput{
+		Bucket: &bucket,
+		Key:    &objKey,
+	}
+
+	presignReq, err := presignClient.PresignPutObject(ctx, putInput, func(opts *s3.PresignOptions) {
+		opts.Expires = 1 * time.Minute
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
+	}
+	return presignReq.URL, nil
 }
 
 func (c *Controller) runWorker(ctx context.Context, ctrlCfg dumperV1.ControllerConfig) {

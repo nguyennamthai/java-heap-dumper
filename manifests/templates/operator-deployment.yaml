@@ -29,8 +29,10 @@ spec:
               value: {{ .Values.serviceName }}
             - name: CONTROLLER_PORT
               value: {{ .Values.controllerPort }}
-            - name: S3_BUCKET_PREFIX
-              value: {{ .Values.s3BucketPrefix }}
+            - name: S3_DUMP_BUCKET
+              value: {{ .Values.s3DumpLocation.bucket }}
+            - name: S3_DUMP_PREFIX
+              value: {{ .Values.s3DumpLocation.prefix }}
           ports:
             - containerPort: {{ .Values.controllerPort }}
           resources:

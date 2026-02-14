@@ -5,7 +5,9 @@ image:
 
 serviceName: gc-operator
 controllerPort: 9000
-s3BucketPrefix: https://hivecpq-dev-artifacts.s3.eu-central-1.amazonaws.com/dumps/
+s3DumpLocation:
+  bucket: https://hivecpq-dev-artifacts.s3.eu-central-1.amazonaws.com
+  prefix: dump
 
 resources:
   limits:
