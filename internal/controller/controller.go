@@ -29,9 +29,10 @@ import (
 )
 
 const (
-	publishDumpPath = "/publishDump"
-	maxRetries      = 3
-	finalizerName   = "cleanup"
+	publisherAppName = "gc-publisher"
+	publishDumpPath  = "/publishDump"
+	maxRetries       = 3
+	finalizerName    = "cleanup"
 )
 
 var (
@@ -41,7 +42,7 @@ var (
 			startOnInjection: true,
 		},
 		{
-			fileName:         "gc-publisher",
+			fileName:         publisherAppName,
 			subCmd:           "s3",
 			startOnInjection: false,
 		},
@@ -136,7 +137,14 @@ func (c *Controller) startHttpServer(ctx context.Context, ctrlCfg dumperV1.Contr
 		}
 
 		slog.Info("Received heap dump report", "namespace", dumpLoc.Namespace, "podName", dumpLoc.PodName, "localPath", dumpLoc.LocalPath)
-		triggerUploadToS3(ctx, s3Client, dumpLoc)
+
+		pod, err := c.baseClient.CoreV1().Pods(dumpLoc.Namespace).Get(ctx, dumpLoc.PodName, metaV1.GetOptions{})
+		if err != nil {
+			slog.Error("Failed to get pod", "namespace", dumpLoc.Namespace, "podName", dumpLoc.PodName, "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		triggerUploadToS3(ctx, s3Client, c.injector, pod, dumpLoc)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -154,7 +162,7 @@ func getS3Client(ctx context.Context) (*s3.Client, error) {
 	return s3.NewFromConfig(cfg), nil
 }
 
-func triggerUploadToS3(ctx context.Context, s3Client *s3.Client, dumpLoc HeapDumpLocation) {
+func triggerUploadToS3(ctx context.Context, s3Client *s3.Client, i *injector.Injector, pod *coreV1.Pod, dumpLoc HeapDumpLocation) {
 	bucket := os.Getenv("S3_DUMP_BUCKET")
 	objKey := fmt.Sprintf("%s/%s", os.Getenv("S3_DUMP_PREFIX"), filepath.Base(dumpLoc.LocalPath))
 	presignedUrl, err := generatePresignedPutUrl(ctx, s3Client, bucket, objKey)
@@ -163,6 +171,17 @@ func triggerUploadToS3(ctx context.Context, s3Client *s3.Client, dumpLoc HeapDum
 		return
 	}
 
+	opts := injector.Options{
+		ContainerName: "",
+		FileName:      publisherAppName,
+		SubCmd:        fmt.Sprintf("s3  --file %s --url %s", dumpLoc.LocalPath, presignedUrl),
+	}
+
+	err = i.ExecuteProcess(ctx, pod, opts)
+	if err != nil {
+		slog.Error("Failed to execute process", "error", err)
+		return
+	}
 	slog.Info("Uploading dump to S3", "presignedUrl", presignedUrl)
 }
 
