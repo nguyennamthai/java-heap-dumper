@@ -3,7 +3,9 @@ image:
   pullPolicy: Always
   tag: "1"
 
-serviceName: gc-operator
+name: gc-operator
+labels:
+  app: gc-operator
 controllerPort: 9000
 s3DumpLocation:
   bucket: https://hivecpq-dev-artifacts.s3.eu-central-1.amazonaws.com
@@ -16,7 +18,3 @@ resources:
   requests:
     cpu: 50m
     memory: 64Mi
-
-serviceAccount:
-  create: true
-  name: "gc-operator"

@@ -1,21 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gc-operator
+  name: {{ .Values.name }}
   namespace: {{ .Release.Namespace }}
-  labels:
-    app: gc-operator
+  labels: {{ toYaml .Values.labels | nindent 4 }}
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app: gc-operator
+    matchLabels: {{ toYaml .Values.labels | nindent 6 }}
   template:
     metadata:
-      labels:
-        app: gc-operator
+      labels: {{ toYaml .Values.labels | nindent 8 }}
     spec:
-      serviceAccountName: {{ .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.name }}
       containers:
         - name: operator
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -26,7 +23,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: SERVICE_NAME
-              value: {{ .Values.serviceName }}
+              value: {{ .Values.name }}
             - name: CONTROLLER_PORT
               value: {{ .Values.controllerPort }}
             - name: S3_DUMP_BUCKET
@@ -35,5 +32,4 @@ spec:
               value: {{ .Values.s3DumpLocation.prefix }}
           ports:
             - containerPort: {{ .Values.controllerPort }}
-          resources:
-            {{ toYaml .Values.resources | nindent 12 }}
+          resources: {{ toYaml .Values.resources | nindent 12 }}

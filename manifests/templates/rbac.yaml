@@ -1,35 +1,40 @@
-{{- if .Values.serviceAccount.create -}}
+{{ $sa := (lookup "v1" "ServiceAccount" .Release.Namespace .Values.name) -}}
+{{ if not $sa -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Values.serviceAccount.name }}
+  name: {{ .Values.name }}
   namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/resource-policy": keep
 {{- end }}
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ .Values.serviceAccount.name }}
+  name: {{ .Values.name }}
 rules:
-  - apiGroups: ["hivecpq"]
-    resources: ["heapdumpers"]
-    verbs: ["list", "watch", "update"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["create"]
+  - apiGroups: [ "hivecpq" ]
+    resources: [ "heapdumpers" ]
+    verbs: [ "list", "watch", "update" ]
+  - apiGroups: [ "" ]
+    resources: [ "pods" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "" ]
+    resources: [ "pods/exec" ]
+    verbs: [ "create" ]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ .Values.serviceAccount.name }}
+  name: {{ .Values.name }}
 subjects:
   - kind: ServiceAccount
-    name: {{ .Values.serviceAccount.name }}
+    name: {{ .Values.name }}
     namespace: {{ .Release.Namespace }}
 roleRef:
   kind: ClusterRole
-  name: {{ .Values.serviceAccount.name }}
+  name: {{ .Values.name }}
   apiGroup: rbac.authorization.k8s.io
