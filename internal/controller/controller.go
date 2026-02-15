@@ -138,13 +138,7 @@ func (c *Controller) startHttpServer(ctx context.Context, ctrlCfg dumperV1.Contr
 
 		slog.Info("Received heap dump report", "namespace", dumpLoc.Namespace, "podName", dumpLoc.PodName, "localPath", dumpLoc.LocalPath)
 
-		pod, err := c.baseClient.CoreV1().Pods(dumpLoc.Namespace).Get(ctx, dumpLoc.PodName, metaV1.GetOptions{})
-		if err != nil {
-			slog.Error("Failed to get pod", "namespace", dumpLoc.Namespace, "podName", dumpLoc.PodName, "error", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		c.triggerUploadToS3(ctx, s3Client, c.injector, pod, dumpLoc)
+		c.triggerUploadToS3(ctx, s3Client, c.injector, dumpLoc)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -162,12 +156,24 @@ func getS3Client(ctx context.Context) (*s3.Client, error) {
 	return s3.NewFromConfig(cfg), nil
 }
 
-func (c *Controller) triggerUploadToS3(ctx context.Context, s3Client *s3.Client, i *injector.Injector, pod *coreV1.Pod, dumpLoc HeapDumpLocation) {
+func (c *Controller) triggerUploadToS3(ctx context.Context, s3Client *s3.Client, i *injector.Injector, dumpLoc HeapDumpLocation) {
 	dumper, err := c.loadDumper()
 	if err != nil {
 		slog.Error("Failed to load dumper", "error", err)
 		return
 	}
+
+	pods, err := c.findPods(ctx, dumper)
+	if err != nil {
+		slog.Error("Failed to load pods", "error", err)
+		return
+	}
+	pod, err := findPodByName(pods, dumpLoc.PodName)
+	if err != nil {
+		slog.Error("Failed to find pod", "error", err)
+		return
+	}
+
 	containerName, err := findContainerName(pod, dumper.Spec.Container)
 
 	bucket := os.Getenv("S3_DUMP_BUCKET")
@@ -212,6 +218,15 @@ func (c *Controller) loadDumper() (*dumperV1.HeapDumper, error) {
 		return nil, fmt.Errorf("expected HeapDumper, got %T", item)
 	}
 	return dumper, nil
+}
+
+func findPodByName(pods []coreV1.Pod, podName string) (*coreV1.Pod, error) {
+	for _, pod := range pods {
+		if pod.Name == podName {
+			return &pod, nil
+		}
+	}
+	return nil, fmt.Errorf("pod %s not found", podName)
 }
 
 func generatePresignedPutUrl(ctx context.Context, s3Client *s3.Client, bucket string, objKey string) (string, error) {
