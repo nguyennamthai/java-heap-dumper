@@ -144,7 +144,7 @@ func (c *Controller) startHttpServer(ctx context.Context, ctrlCfg dumperV1.Contr
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		triggerUploadToS3(ctx, s3Client, c.injector, pod, dumpLoc)
+		c.triggerUploadToS3(ctx, s3Client, c.injector, pod, dumpLoc)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -162,7 +162,14 @@ func getS3Client(ctx context.Context) (*s3.Client, error) {
 	return s3.NewFromConfig(cfg), nil
 }
 
-func triggerUploadToS3(ctx context.Context, s3Client *s3.Client, i *injector.Injector, pod *coreV1.Pod, dumpLoc HeapDumpLocation) {
+func (c *Controller) triggerUploadToS3(ctx context.Context, s3Client *s3.Client, i *injector.Injector, pod *coreV1.Pod, dumpLoc HeapDumpLocation) {
+	dumper, err := c.loadDumper()
+	if err != nil {
+		slog.Error("Failed to load dumper", "error", err)
+		return
+	}
+	containerName, err := findContainerName(pod, dumper.Spec.Container)
+
 	bucket := os.Getenv("S3_DUMP_BUCKET")
 	objKey := fmt.Sprintf("%s/%s", os.Getenv("S3_DUMP_PREFIX"), filepath.Base(dumpLoc.LocalPath))
 	presignedUrl, err := generatePresignedPutUrl(ctx, s3Client, bucket, objKey)
@@ -172,7 +179,7 @@ func triggerUploadToS3(ctx context.Context, s3Client *s3.Client, i *injector.Inj
 	}
 
 	opts := injector.Options{
-		ContainerName: "",
+		ContainerName: containerName,
 		FileName:      publisherAppName,
 		SubCmd:        fmt.Sprintf("s3  --file %s --url %s", dumpLoc.LocalPath, presignedUrl),
 	}
@@ -183,6 +190,28 @@ func triggerUploadToS3(ctx context.Context, s3Client *s3.Client, i *injector.Inj
 		return
 	}
 	slog.Info("Uploading dump to S3", "presignedUrl", presignedUrl)
+}
+
+func (c *Controller) loadDumper() (*dumperV1.HeapDumper, error) {
+	key, quit := c.queue.Get()
+	if quit {
+		return nil, fmt.Errorf("failed to load dumper")
+	}
+	defer c.queue.Done(key)
+
+	item, exists, err := c.informer.GetIndexer().GetByKey(key)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("dumper %s not found", key)
+	}
+
+	dumper, ok := item.(*dumperV1.HeapDumper)
+	if !ok {
+		return nil, fmt.Errorf("expected HeapDumper, got %T", item)
+	}
+	return dumper, nil
 }
 
 func generatePresignedPutUrl(ctx context.Context, s3Client *s3.Client, bucket string, objKey string) (string, error) {
